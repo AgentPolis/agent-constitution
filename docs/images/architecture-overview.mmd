@@ -1,0 +1,47 @@
+graph TB
+    subgraph Sources["📡 Intel Station"]
+        RSS[RSS Feeds]
+        KOL[KOL Feeds]
+        INST[Institutional Data]
+    end
+
+    subgraph Pipeline["🔄 Signal Pipeline"]
+        SA[Signal Adapter]
+        SP[SignalPool<br/>merge · cross_reference · get_actionable]
+    end
+
+    subgraph Framework["🏛️ Agent Constitution"]
+        CONST[CONSTITUTION.md<br/>Epistemic Rules]
+        subgraph Line1["Research Line"]
+            A1[market_researcher]
+            A2[business_analyst]
+            A3[risk_analyst]
+        end
+        subgraph Line2["Product Line"]
+            B1[product_manager]
+            B2[system_architect]
+            B3[qa_engineer]
+        end
+        subgraph Line3["Intel Line"]
+            C1[intel_collector]
+            C2[research_analyst]
+            C3[risk_officer]
+        end
+        DEBATE["⚔️ Adversarial Debate<br/>score ≥ 32 → trigger"]
+        RETRO["🔄 Retrospective<br/>Calibration"]
+    end
+
+    subgraph Outputs["📤 Outputs"]
+        D1[Discord]
+        D2[Reports]
+        D3[Signals]
+        D4[Audit Trail]
+        D5[Cost Report]
+    end
+
+    Sources --> Pipeline
+    Pipeline --> Framework
+    CONST --> Line1 & Line2 & Line3
+    Line1 & Line2 & Line3 --> DEBATE
+    DEBATE --> RETRO
+    RETRO --> Outputs

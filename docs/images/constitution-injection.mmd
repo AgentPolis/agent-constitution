@@ -1,0 +1,17 @@
+graph TB
+    CONST["📜 CONSTITUTION.md<br/>---<br/>Team Mission<br/>Core Rules (5)<br/>Epistemic Honesty<br/>SPECULATION_TAG required<br/>Confidence 0.0-1.0<br/>Bad news promoted<br/>Agent SOUL.md Contract"]
+
+    subgraph Injection["Constitution Injection Layer"]
+        INJ["constitution.py<br/>Constitution.default()<br/>Constitution.from_yaml()<br/>Constitution.from_soul_md()"]
+    end
+
+    CONST --> INJ
+
+    subgraph Agents["Agents (each with SOUL.md)"]
+        A1["👤 analyst/SOUL.md<br/># Analyst — Nate<br/>## Mission<br/>## Persona<br/>## Values<br/>## Hard Constraints<br/>↳ inherits CONSTITUTION.md"]
+        A2["👤 critic/SOUL.md<br/># Critic — Eve<br/>## Mission<br/>## Persona<br/>## Values<br/>## Hard Constraints<br/>↳ inherits CONSTITUTION.md"]
+        A3["👤 judge/SOUL.md<br/># Judge — Solomon<br/>..."]
+        AN["👤 ... (21 agents total)"]
+    end
+
+    INJ --> A1 & A2 & A3 & AN

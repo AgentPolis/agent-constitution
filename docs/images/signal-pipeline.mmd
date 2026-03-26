@@ -1,0 +1,24 @@
+flowchart LR
+    subgraph IN["Input Sources"]
+        S1["RSS Feed<br/>tier: tier1"]
+        S2["KOL Tweet<br/>tier: tier2"]
+        S3["Institutional<br/>tier: tier1"]
+    end
+
+    subgraph SCHEMA["Signal Schema"]
+        SIG["Signal<br/>---<br/>tier: str<br/>direction: str<br/>title: str<br/>summary: str<br/>source: str<br/>confidence: float<br/>timestamp: datetime"]
+    end
+
+    subgraph POOL["SignalPool"]
+        MERGE["merge()<br/>deduplicate"]
+        XREF["cross_reference()<br/>validate across sources"]
+        ACT["get_actionable()<br/>filter by confidence"]
+    end
+
+    OUT["📊 Actionable Signals<br/>confidence-weighted<br/>cross-validated"]
+
+    IN --> SCHEMA
+    SCHEMA --> MERGE
+    MERGE --> XREF
+    XREF --> ACT
+    ACT --> OUT

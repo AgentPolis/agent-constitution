@@ -1,0 +1,11 @@
+flowchart TD
+    P["🔮 Agent makes prediction<br/>'This opportunity will succeed'<br/>confidence: 0.75"]
+    W["⏳ Wait period<br/>7-30 days"]
+    V["🔍 Verify outcome<br/>Did prediction materialize?"]
+    C["📊 Calibrate scores<br/>Right → credibility +<br/>Wrong → credibility -"]
+    FB["🔄 Feed back to agents<br/>Adjust future confidence<br/>Update SOUL.md history"]
+
+    P --> W --> V --> C --> FB --> P
+
+    V -->|Correct| C
+    V -->|Incorrect| C

@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant E as Evaluator
+    participant C as Challenger (Critic)
+    participant D as Defender (Analyst)
+    participant J as Judge
+
+    E->>E: Score assessment (0-40)
+    E->>E: Score ≥ 32? → Trigger debate
+
+    loop 3 Challenges
+        C->>D: Challenge: [assumption/risk/blind_spot]
+        D->>C: Defense: [rebuttal + evidence]
+    end
+
+    C->>J: Submit: 3 challenges + severity
+    D->>J: Submit: 3 defenses + confidence
+    J->>J: Evaluate argument quality
+    J->>E: Verdict: proceed/reject/reconsider + score_delta
+    E->>E: Adjust score by score_delta
+    E->>E: Append to RunTrace audit trail

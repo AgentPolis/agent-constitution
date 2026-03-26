@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+output/
+*.json
+!package.json
+cost-history.json
+signal-pool.json
+workspace/
+.DS_Store

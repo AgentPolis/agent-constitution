@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-constitution"
@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Production-grade multi-agent governance framework with adversarial debate, epistemic honesty, and retrospective calibration"
 readme = "README.md"
 license = {text = "MIT"}
+authors = [{name = "agent-constitution contributors", email = "noreply@github.com"}]
 requires-python = ">=3.11"
 keywords = ["multi-agent", "llm", "governance", "debate", "ai-agents"]
 classifiers = [

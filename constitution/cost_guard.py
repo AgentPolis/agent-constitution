@@ -2,11 +2,15 @@ class CostGuard:
     def __init__(self, soft_limit_usd: float = 1.0, hard_limit_usd: float = 5.0):
         self.soft_limit_usd = soft_limit_usd
         self.hard_limit_usd = hard_limit_usd
-        self.total_cost: float = 0.0
+        self._total_cost: float = 0.0
         self._calls: list[float] = []
 
+    @property
+    def total_cost(self) -> float:
+        return self._total_cost
+
     def record(self, cost_usd: float) -> None:
-        self.total_cost += cost_usd
+        self._total_cost += cost_usd
         self._calls.append(cost_usd)
         if self.total_cost >= self.hard_limit_usd:
             raise RuntimeError(
@@ -22,5 +26,5 @@ class CostGuard:
         return len(self._calls)
 
     def reset(self) -> None:
-        self.total_cost = 0.0
+        self._total_cost = 0.0
         self._calls.clear()

@@ -13,13 +13,14 @@ class SignalPool:
         return re.sub(r'[^\w\s]', '', title.lower()).strip()
 
     def _is_duplicate(self, signal: Signal) -> bool:
-        """Check if signal is a duplicate within the dedup window."""
+        """Check if signal is a duplicate from the same source within the dedup window."""
         window_start = signal.timestamp - timedelta(hours=self.dedup_window_hours)
         normalized = self._normalize_title(signal.title)
         for existing in self.signals:
             if existing.timestamp < window_start:
                 continue
-            if (existing.direction == signal.direction and
+            if (existing.source == signal.source and
+                    existing.direction == signal.direction and
                     self._normalize_title(existing.title) == normalized):
                 return True
         return False

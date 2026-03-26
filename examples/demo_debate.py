@@ -11,8 +11,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich import print as rprint
-
 from constitution import BaseAgent, Constitution, Debate
 from adapters import MockAdapter
 

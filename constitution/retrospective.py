@@ -55,6 +55,8 @@ class Retrospective:
         pred = next((p for p in self.predictions if p.id == prediction_id), None)
         if not pred:
             raise ValueError(f"Prediction {prediction_id} not found")
+        if pred.outcome is not None:
+            raise ValueError(f"Prediction {prediction_id} already verified as '{pred.outcome}'")
 
         delta_map = {
             "correct": self.CREDIBILITY_CORRECT,

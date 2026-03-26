@@ -1,9 +1,5 @@
 from typing import Optional
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from adapters import LLMAdapter, LLMResponse, MockAdapter
 from .constitution import Constitution
 from .trace import RunTrace
@@ -40,7 +36,7 @@ class BaseAgent:
         parts.append(self.constitution.as_prompt())
         return "\n\n".join(parts)
 
-    def run(self, prompt: str, tools: list[dict] = None) -> str:
+    def run(self, prompt: str, tools: Optional[list[dict]] = None) -> str:
         """Execute agent with constitution-injected system prompt."""
         system = self._build_system_prompt()
         messages = [{"role": "user", "content": prompt}]

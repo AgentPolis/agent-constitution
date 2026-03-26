@@ -38,14 +38,24 @@ class Constitution:
     def from_file(cls, path: str | Path) -> "Constitution":
         """Load from a CONSTITUTION.md or plain text file."""
         path = Path(path)
-        return cls(path.read_text(encoding="utf-8"))
+        try:
+            return cls(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raise ValueError(f"Constitution file not found: {path}")
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Constitution":
         """Load from YAML config file with 'constitution' key."""
         path = Path(path)
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        text = data.get("constitution", "")
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raise ValueError(f"YAML file not found: {path}")
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML in {path}: {e}")
+        text = data.get("constitution", "") if isinstance(data, dict) else ""
+        if not text:
+            raise ValueError(f"No 'constitution' key found in {path}")
         return cls(text)
 
     @classmethod

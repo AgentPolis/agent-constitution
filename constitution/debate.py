@@ -85,7 +85,7 @@ Evaluate the debate and return verdict. Format as JSON:
         try:
             data = json.loads(judge_response)
             verdict = data.get("verdict", "proceed_with_caution")
-            score_delta = data.get("score_delta", -3)
+            score_delta = max(-10, min(5, data.get("score_delta", -3)))
             reasoning = data.get("reasoning", judge_response)
         except (json.JSONDecodeError, AttributeError):
             verdict = "proceed_with_caution"

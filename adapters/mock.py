@@ -55,8 +55,10 @@ class MockAdapter(LLMAdapter):
         tools: list[dict] = None,
         max_tokens: int = 4096,
     ) -> LLMResponse:
+        start = time.time()
         if self.simulate_delay_ms > 0:
             time.sleep(self.simulate_delay_ms / 1000.0)
+        duration_ms = int((time.time() - start) * 1000)
 
         role = self._detect_role(system_prompt)
         content = self.role_responses.get(role, self.role_responses["default"])
@@ -74,6 +76,6 @@ class MockAdapter(LLMAdapter):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost_usd=0.0,
-            duration_ms=self.simulate_delay_ms,
+            duration_ms=duration_ms,
             tool_calls=[],
         )

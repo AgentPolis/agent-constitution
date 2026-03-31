@@ -7,11 +7,21 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests: 138 passed](https://img.shields.io/badge/tests-138%20passed-brightgreen.svg)]()
 
-<!-- TODO: Replace with actual demo GIF before launch
-     Record with: asciinema rec demo.cast && agg demo.cast demo.gif
-     Run: ac debate "Should we build an AI code review tool?"
-     Then uncomment: <p align="center"><img src="assets/demo.gif" width="600" alt="ac debate demo"></p>
--->
+```mermaid
+flowchart LR
+    A["🔍 Analyst<br/>scores idea<br/><b>35/40</b>"] -->|"score ≥ 32"| B["⚔️ Critic<br/>3 challenges"]
+    B --> C["🛡️ Defender<br/>3 rebuttals"]
+    C --> D["⚖️ Judge<br/>verdict + delta"]
+    D --> E["📊 Governance<br/>Score 7.8/10"]
+    E -.->|"30 days later"| F["🔄 Retro<br/>was judge right?<br/>credibility ±0.05"]
+
+    style A fill:#2563eb,color:#fff,stroke:none
+    style B fill:#dc2626,color:#fff,stroke:none
+    style C fill:#2563eb,color:#fff,stroke:none
+    style D fill:#7c3aed,color:#fff,stroke:none
+    style E fill:#059669,color:#fff,stroke:none
+    style F fill:#d97706,color:#fff,stroke:none
+```
 
 Agent Constitution helps agent teams do three things most frameworks leave to you:
 

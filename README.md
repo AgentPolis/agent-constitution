@@ -347,24 +347,25 @@ Agent Constitution draws on these findings to build a practical, installable gov
 - 4 LLM backends: Mock, Anthropic, Claude CLI, Ollama
 - `ac` CLI + Governance Score
 
-**v1.5 — Agent Growth Engine**
-- Skill auto-creation from experience (with adversarial review)
-- Dream/consolidation on session end
-- Context compression for long-running agents
+**v1.5 — Runtime Governance**
+- Per-turn token budgets (not just session-level hard limits)
+- Permission gates on adapter calls (sub-agents get restricted scope)
+- Auto-compaction with semantic retention for long-running sessions
+- Consolidation engine: background learning extraction during idle time
 
-**v2 — MCP + Multi-Platform**
-- Model Context Protocol integration
-- Memory MCP server (recall/store/consolidate)
+**v2 — Agent Growth Engine**
+- Skill auto-creation from experience (with adversarial review before promotion)
+- Dream/consolidation cycle: session end → extract learnings → update SOUL.md
+- Memory MCP server (recall/store/consolidate across sessions)
+
+**v3 — Protocol Layer**
+- Model Context Protocol integration (tools as MCP servers)
+- Agent-to-agent protocol support for cross-framework collaboration
 - Multi-platform gateway (Discord, Telegram, Slack)
 
-**v3 — A2A + Collective Evolution**
-- Agent-to-agent protocol support
-- Cross-framework collaboration
-- DSPy-based evolutionary prompt optimization
-
-> Why governance first? Because MCP/A2A solve *how* agents communicate.
+> Why governance first? Because protocols solve *how* agents communicate.
 > Agent Constitution solves *whether agents are thinking honestly*.
-> Nobody else is doing the second part.
+> The governance layer is what makes everything else trustworthy.
 
 ---
 

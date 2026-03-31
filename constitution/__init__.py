@@ -2,6 +2,7 @@ from .base_agent import BaseAgent
 from .constitution import Constitution
 from .cost_guard import CostGuard
 from .debate import Debate, DebateResult, DebateValidationError
+from .hooks import AgentHook, DebateHook
 from .governance_score import (
     GovernanceReport,
     aggregate_governance_reports,
@@ -16,6 +17,7 @@ from .trace import RunTrace, TraceEntry
 __all__ = [
     "BaseAgent", "Constitution",
     "Debate", "DebateResult", "DebateValidationError",
+    "AgentHook", "DebateHook",
     "Signal", "SignalPool",
     "CostGuard", "RunTrace", "TraceEntry",
     "Retrospective", "Prediction",

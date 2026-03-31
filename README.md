@@ -5,7 +5,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests: 138 passed](https://img.shields.io/badge/tests-138%20passed-brightgreen.svg)]()
+[![Tests: 157 passed](https://img.shields.io/badge/tests-157%20passed-brightgreen.svg)]()
 
 ```mermaid
 flowchart LR
@@ -168,6 +168,44 @@ retro.verify(pred.id, outcome="correct")  # credibility +0.05
 retro.get_credibility("analyst")          # 1.05
 ```
 
+### 4. Lifecycle Hooks
+
+Plug into any point in the governance pipeline without modifying core code.
+
+```python
+from constitution import BaseAgent, Debate, DebateHook, AgentHook
+
+class AuditHook(DebateHook):
+    """Log every debate step to an external system."""
+    def post_verdict(self, result):
+        send_to_datadog(result.audit_trail)
+        return result
+
+class CostApprovalHook(AgentHook):
+    """Allow cost overruns instead of crashing."""
+    def on_cost_limit(self, agent, cost_usd, total_cost):
+        return "warn"  # "raise" (default) | "warn" | "allow"
+
+# Hooks compose — pass multiple, they chain in order
+debate = Debate(challenger, defender, judge, hooks=[AuditHook()])
+agent = BaseAgent(role="analyst", goal="Evaluate", hooks=[CostApprovalHook()])
+```
+
+Available hook points:
+
+| Hook | When | Can modify |
+|------|------|-----------|
+| `AgentHook.pre_call` | Before LLM call | Prompt |
+| `AgentHook.post_call` | After LLM call | Response content |
+| `AgentHook.on_cost_limit` | Cost would exceed limit | Raise / warn / allow |
+| `DebateHook.pre_challenge` | Before challenger runs | Topic |
+| `DebateHook.post_challenge` | After challenge validation | Challenges list |
+| `DebateHook.pre_defense` | Before defender runs | Challenges |
+| `DebateHook.post_defense` | After defense validation | Defenses list |
+| `DebateHook.pre_verdict` | Before judge runs | Abort (raise) |
+| `DebateHook.post_verdict` | After verdict | Full result |
+| `DebateHook.on_validation_error` | Schema validation fails | Raise / fallback |
+
 ---
 
 ## Governance Score
@@ -271,6 +309,7 @@ class MyAdapter(LLMAdapter):
 | `constitution/governance_score.py` | 5-dimension governance scoring from recorded runs |
 | `constitution/cost_guard.py` | Token budget enforcement with hard limits |
 | `constitution/base_agent.py` | BaseAgent with constitution injection |
+| `constitution/hooks.py` | AgentHook + DebateHook lifecycle system |
 | `constitution/cli.py` | `ac` CLI entry point (`ac debate`, `ac score`) |
 | `adapters/mock.py` | Debate-aware mock adapter (zero API key) |
 | `adapters/anthropic_api.py` | Anthropic API adapter |

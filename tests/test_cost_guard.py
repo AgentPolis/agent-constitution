@@ -5,6 +5,7 @@ Tests for CostGuard.
 import pytest
 
 from constitution import CostGuard
+from constitution.cost_guard import CostLimitExceeded
 
 
 class TestCostGuardRecord:

@@ -1,3 +1,7 @@
+class CostLimitExceeded(RuntimeError):
+    """Raised when cumulative cost would exceed the hard limit."""
+
+
 class CostGuard:
     def __init__(self, soft_limit_usd: float = 1.0, hard_limit_usd: float = 5.0):
         self.soft_limit_usd = soft_limit_usd
@@ -12,7 +16,7 @@ class CostGuard:
     def record(self, cost_usd: float) -> None:
         new_total = self._total_cost + cost_usd
         if new_total >= self.hard_limit_usd:
-            raise RuntimeError(
+            raise CostLimitExceeded(
                 f"Hard cost limit ${self.hard_limit_usd} would be exceeded "
                 f"(current: ${self._total_cost:.4f}, attempted: ${cost_usd:.4f})"
             )

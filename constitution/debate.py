@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import json
 import logging
 from dataclasses import dataclass, field
+from typing import Optional
 
 from .base_agent import BaseAgent
+from .hooks import CompositeDebateHook, DebateHook
 
 logger = logging.getLogger(__name__)
 
@@ -88,11 +92,13 @@ class Debate:
         judge: BaseAgent,
         *,
         strict_validation: bool = True,
+        hooks: Optional[list[DebateHook]] = None,
     ):
         self.challenger = challenger
         self.defender = defender
         self.judge = judge
         self.strict_validation = strict_validation
+        self._hook: DebateHook = CompositeDebateHook(hooks) if hooks else DebateHook()
 
     def should_trigger(self, score: int) -> bool:
         return score >= self.SCORE_THRESHOLD
@@ -105,6 +111,9 @@ class Debate:
         3. Judge evaluates → validator checks schema
         """
         audit_trail = []
+
+        # --- pre_challenge hook ---
+        topic = self._hook.pre_challenge(topic)
 
         # --- Step 1: Generate + Validate challenges ---
         challenger_prompt = f"""Topic: {topic}
@@ -119,9 +128,15 @@ Generate exactly 3 specific challenges to this assessment. Format as JSON:
             challenges = _validate_challenges(challenger_response)
         except DebateValidationError as exc:
             logger.warning("Challenger validation failed: %s", exc)
-            if self.strict_validation:
+            action = self._hook.on_validation_error("challenge", exc)
+            if action == "raise" and self.strict_validation:
                 raise
             challenges = [challenger_response]
+
+        challenges = self._hook.post_challenge(challenges)
+
+        # --- pre_defense hook ---
+        challenges = self._hook.pre_defense(challenges)
 
         # --- Step 2: Generate + Validate defenses ---
         defender_prompt = f"""Topic: {topic}
@@ -139,9 +154,15 @@ Provide a defense for each challenge. Format as JSON:
             defenses = _validate_defenses(defender_response)
         except DebateValidationError as exc:
             logger.warning("Defender validation failed: %s", exc)
-            if self.strict_validation:
+            action = self._hook.on_validation_error("defense", exc)
+            if action == "raise" and self.strict_validation:
                 raise
             defenses = [defender_response]
+
+        defenses = self._hook.post_defense(defenses)
+
+        # --- pre_verdict hook ---
+        self._hook.pre_verdict(challenges, defenses)
 
         # --- Step 3: Generate + Validate verdict ---
         judge_prompt = f"""Topic: {topic}
@@ -160,13 +181,14 @@ Evaluate the debate and return verdict. Format as JSON:
             verdict, score_delta, reasoning = _validate_verdict(judge_response)
         except DebateValidationError as exc:
             logger.warning("Judge validation failed: %s", exc)
-            if self.strict_validation:
+            action = self._hook.on_validation_error("verdict", exc)
+            if action == "raise" and self.strict_validation:
                 raise
             verdict = "proceed_with_caution"
             score_delta = -3
             reasoning = judge_response
 
-        return DebateResult(
+        result = DebateResult(
             verdict=verdict,
             score_delta=score_delta,
             reasoning=reasoning,
@@ -174,3 +196,8 @@ Evaluate the debate and return verdict. Format as JSON:
             defenses=defenses,
             audit_trail=audit_trail,
         )
+
+        # --- post_verdict hook ---
+        result = self._hook.post_verdict(result)
+
+        return result

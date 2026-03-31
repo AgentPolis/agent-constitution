@@ -262,6 +262,34 @@ class MyAdapter(LLMAdapter):
 
 ---
 
+## Core Modules
+
+| Module | What it does |
+|--------|-------------|
+| `constitution/debate.py` | Adversarial debate engine + schema validators |
+| `constitution/retrospective.py` | Prediction tracking + credibility calibration |
+| `constitution/governance_score.py` | 5-dimension governance scoring from recorded runs |
+| `constitution/cost_guard.py` | Token budget enforcement with hard limits |
+| `constitution/base_agent.py` | BaseAgent with constitution injection |
+| `constitution/cli.py` | `ac` CLI entry point (`ac debate`, `ac score`) |
+| `adapters/mock.py` | Debate-aware mock adapter (zero API key) |
+| `adapters/anthropic_api.py` | Anthropic API adapter |
+| `adapters/ollama.py` | Ollama local models adapter |
+| `adapters/claude_cli.py` | Claude CLI adapter |
+
+## Tech Stack
+
+| Tech | Role |
+|------|------|
+| Python 3.11+ | Runtime |
+| [Rich](https://github.com/Textualize/rich) | CLI formatting and tables |
+| PyYAML | Constitution / SOUL.md loading |
+| httpx | HTTP client for Ollama and API adapters |
+| pytest | 138 tests, zero API keys required |
+| ruff | Linting and formatting |
+
+---
+
 ## Architecture
 
 ```

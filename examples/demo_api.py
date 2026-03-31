@@ -17,11 +17,11 @@ if not api_key:
     print("\nTo run without an API key: python examples/demo_debate.py")
     sys.exit(1)
 
-from rich.console import Console
-from rich.panel import Panel
+from rich.console import Console  # noqa: E402
+from rich.panel import Panel  # noqa: E402
 
-from adapters import AnthropicAPIAdapter
-from constitution import BaseAgent, Constitution, Debate, DebateValidationError
+from adapters import AnthropicAPIAdapter  # noqa: E402
+from constitution import BaseAgent, Constitution, Debate, DebateValidationError  # noqa: E402
 
 console = Console()
 

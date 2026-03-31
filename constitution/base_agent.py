@@ -57,14 +57,6 @@ class BaseAgent:
             tools=tools,
         )
 
-        self._trace.record(
-            prompt=prompt,
-            response=response.content,
-            tokens_in=response.input_tokens,
-            tokens_out=response.output_tokens,
-            cost=response.cost_usd,
-        )
-
         try:
             self._cost_guard.record(response.cost_usd)
         except CostLimitExceeded:
@@ -73,10 +65,19 @@ class BaseAgent:
             )
             if action == "raise":
                 raise
-            # "warn" or "allow" — continue without raising
+            # Hook explicitly allowed the over-limit call, so keep accounting honest.
+            self._cost_guard.record_override(response.cost_usd)
 
         # --- post_call hook ---
         content = self._hook.post_call(self, response.content, response.cost_usd)
+
+        self._trace.record(
+            prompt=prompt,
+            response=content,
+            tokens_in=response.input_tokens,
+            tokens_out=response.output_tokens,
+            cost=response.cost_usd,
+        )
 
         return content
 

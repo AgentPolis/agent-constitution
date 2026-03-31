@@ -23,6 +23,11 @@ class CostGuard:
         self._total_cost = new_total
         self._calls.append(cost_usd)
 
+    def record_override(self, cost_usd: float) -> None:
+        """Record an over-limit call after a hook explicitly allows it."""
+        self._total_cost += cost_usd
+        self._calls.append(cost_usd)
+
     def check_soft_limit(self) -> bool:
         """Returns True if soft limit is reached (warning signal, doesn't raise)."""
         return self.total_cost >= self.soft_limit_usd

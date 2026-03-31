@@ -95,7 +95,12 @@ def _build_governance_record(
     critic,
     judge,
 ) -> dict:
-    from constitution.debate import VALID_VERDICTS, _validate_challenges, _validate_defenses, _validate_verdict
+    from constitution.debate import (
+        VALID_VERDICTS,
+        _validate_challenges,
+        _validate_defenses,
+        _validate_verdict,
+    )
 
     raw_responses = [assessment]
     constitutional_checks = [1.0 if _analyst_response_is_valid(assessment) else 0.0]
@@ -354,7 +359,11 @@ def cmd_debate(args: argparse.Namespace) -> None:
 
 def cmd_score(args: argparse.Namespace) -> None:
     """Display the current Governance Score from recorded runs."""
-    from constitution import aggregate_governance_reports, compute_governance_score, uncalibrated_report
+    from constitution import (
+        aggregate_governance_reports,
+        compute_governance_score,
+        uncalibrated_report,
+    )
 
     console.print(Panel.fit(
         "[bold blue]Agent Constitution[/bold blue]  |  Governance Score",
@@ -425,11 +434,15 @@ def build_parser() -> argparse.ArgumentParser:
     # --- debate ---
     debate_parser = subparsers.add_parser(
         "debate",
-        help="Run an adversarial debate on a topic",
+        help="Assess a topic, then trigger debate automatically if score >= 32/40",
+        description=(
+            "Run an analyst assessment first. If the initial score is 32/40 or higher, "
+            "Agent Constitution automatically triggers the challenger / defender / judge round."
+        ),
     )
     debate_parser.add_argument(
         "topic",
-        help="The topic or question to debate",
+        help="The topic or question to assess; structured debate runs only if the score crosses threshold",
     )
     debate_parser.add_argument(
         "--adapter",

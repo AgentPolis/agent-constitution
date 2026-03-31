@@ -1,11 +1,26 @@
 """Tests for AgentHook and DebateHook lifecycle systems."""
 
+import json
+
 import pytest
 
-from constitution import BaseAgent, Constitution, Debate, DebateResult
-from constitution.hooks import AgentHook, CompositeAgentHook, CompositeDebateHook, DebateHook
+from adapters.base import LLMResponse
+from constitution import (
+    BaseAgent,
+    Constitution,
+    Debate,
+    DebateResult,
+    DecisionPolicy,
+    GovernanceGateHook,
+)
 from constitution.cost_guard import CostLimitExceeded
-
+from constitution.hooks import (
+    AgentHook,
+    CompositeAgentHook,
+    CompositeDebateHook,
+    DebateHook,
+    TriggerContext,
+)
 
 # ---------------------------------------------------------------------------
 # AgentHook tests
@@ -74,6 +89,12 @@ class TestAgentHookLifecycle:
         result = agent.run("test")
         assert result.endswith(" [HOOKED]")
 
+    def test_trace_records_post_hook_response(self):
+        hook = ResponseModifyHook()
+        agent = BaseAgent(role="test", goal="test", hooks=[hook])
+        result = agent.run("test")
+        assert agent.get_trace().entries[-1].response == result
+
     def test_multiple_hooks_chain(self):
         hook1 = PromptModifyHook()
         hook2 = RecordingAgentHook()
@@ -88,10 +109,26 @@ class TestAgentHookCostLimit:
             def on_cost_limit(self, agent, cost_usd, total_cost):
                 return "allow"
 
-        agent = BaseAgent(role="test", goal="test", hooks=[AllowCostHook()])
+        class NonZeroCostAdapter:
+            def call(self, messages, system_prompt="", tools=None, max_tokens=4096):
+                return LLMResponse(
+                    content="ok",
+                    input_tokens=10,
+                    output_tokens=5,
+                    cost_usd=0.5,
+                    duration_ms=1,
+                )
+
+        agent = BaseAgent(
+            role="test",
+            goal="test",
+            adapter=NonZeroCostAdapter(),
+            hooks=[AllowCostHook()],
+        )
         agent._cost_guard.hard_limit_usd = 0.001
         # Should not raise because hook returns "allow"
         agent.run("test")
+        assert agent.get_total_cost() == pytest.approx(0.5)
 
     def test_cost_limit_hook_default_raises(self):
         agent = BaseAgent(role="test", goal="test")
@@ -101,6 +138,253 @@ class TestAgentHookCostLimit:
         # Directly trigger to verify hook wiring
         with pytest.raises(CostLimitExceeded):
             agent._cost_guard.record(0.5)
+
+
+class TestGovernanceGateHook:
+    def test_triggers_debate_when_score_crosses_threshold(self):
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        defender = BaseAgent(role="defender", goal="Defend", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        gate = GovernanceGateHook(challenger=critic, defender=defender, judge=judge)
+        agent = BaseAgent(role="analyst", goal="Evaluate", constitution=rules, hooks=[gate])
+
+        response = agent.run("Should we launch this?")
+
+        assert isinstance(response, str)
+        assert gate.last_score is not None
+        assert gate.last_result is not None
+
+    def test_skips_when_score_cannot_be_extracted(self):
+        class PlainTextAdapter:
+            def call(self, messages, system_prompt="", tools=None, max_tokens=4096):
+                return LLMResponse(
+                    content="plain text without score",
+                    input_tokens=10,
+                    output_tokens=5,
+                    cost_usd=0.0,
+                    duration_ms=1,
+                )
+
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        defender = BaseAgent(role="defender", goal="Defend", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        gate = GovernanceGateHook(challenger=critic, defender=defender, judge=judge)
+        agent = BaseAgent(
+            role="analyst",
+            goal="Evaluate",
+            constitution=rules,
+            adapter=PlainTextAdapter(),
+            hooks=[gate],
+        )
+
+        response = agent.run("test")
+
+        assert response == "plain text without score"
+        assert gate.last_score is None
+        assert gate.last_result is None
+
+    def test_policy_can_trigger_without_score(self):
+        class PlannerAdapter:
+            def call(self, messages, system_prompt="", tools=None, max_tokens=4096):
+                return LLMResponse(
+                    content=(
+                        '{"action":"deploy","environment":"production",'
+                        '"summary":"Deploy the billing auth hotfix now."}'
+                    ),
+                    input_tokens=12,
+                    output_tokens=8,
+                    cost_usd=0.0,
+                    duration_ms=1,
+                )
+
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        defender = BaseAgent(role="defender", goal="Defend", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        gate = GovernanceGateHook(
+            challenger=critic,
+            defender=defender,
+            judge=judge,
+            trigger_policy=DecisionPolicy(
+                action_types={"deploy"},
+                environments={"production"},
+                critical_keywords={"billing", "auth"},
+                match_mode="any",
+            ),
+        )
+        agent = BaseAgent(
+            role="planner",
+            goal="Plan release actions",
+            constitution=rules,
+            adapter=PlannerAdapter(),
+            hooks=[gate],
+        )
+
+        response = agent.run("Should we deploy the auth hotfix to production?")
+
+        assert "deploy" in response
+        assert gate.last_score is None
+        assert gate.last_result is not None
+        assert gate.last_context is not None
+        assert gate.last_context.action_type == "deploy"
+        assert gate.last_context.environment == "production"
+        assert "action_type matched: deploy" in gate.last_trigger_reasons
+
+    def test_policy_match_mode_all_requires_every_condition(self):
+        context = TriggerContext.from_inputs(
+            prompt="Should we deploy to staging?",
+            response_content='{"action":"deploy","environment":"staging"}',
+            score=30,
+            keyword_pool={"deploy", "production"},
+        )
+        policy = DecisionPolicy(
+            min_score=32,
+            action_types={"deploy"},
+            environments={"production"},
+            match_mode="all",
+        )
+
+        should_trigger, reasons = policy.evaluate(context)
+
+        assert should_trigger is False
+        assert reasons == ["action_type matched: deploy"]
+
+    def test_high_stakes_default_policy_catches_keyword_only_decisions(self):
+        class RecommendationAdapter:
+            def call(self, messages, system_prompt="", tools=None, max_tokens=4096):
+                return LLMResponse(
+                    content="Recommendation: approve this pricing change before launch.",
+                    input_tokens=11,
+                    output_tokens=7,
+                    cost_usd=0.0,
+                    duration_ms=1,
+                )
+
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        defender = BaseAgent(role="defender", goal="Defend", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        gate = GovernanceGateHook(
+            challenger=critic,
+            defender=defender,
+            judge=judge,
+            trigger_policy=DecisionPolicy.high_stakes_default(),
+        )
+        agent = BaseAgent(
+            role="planner",
+            goal="Recommend launch actions",
+            constitution=rules,
+            adapter=RecommendationAdapter(),
+            hooks=[gate],
+        )
+
+        agent.run("Recommend whether we should approve the pricing launch.")
+
+        assert gate.last_result is not None
+        assert gate.last_context is not None
+        assert "pricing" in gate.last_context.matched_keywords
+
+    def test_summary_render_mode_enriches_json_response(self):
+        class PlannerAdapter:
+            def call(self, messages, system_prompt="", tools=None, max_tokens=4096):
+                return LLMResponse(
+                    content='{"action":"deploy","environment":"production","summary":"Ship now."}',
+                    input_tokens=9,
+                    output_tokens=6,
+                    cost_usd=0.0,
+                    duration_ms=1,
+                )
+
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        defender = BaseAgent(role="defender", goal="Defend", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        gate = GovernanceGateHook(
+            challenger=critic,
+            defender=defender,
+            judge=judge,
+            trigger_policy=DecisionPolicy(action_types={"deploy"}, environments={"production"}),
+            render_mode="summary",
+        )
+        agent = BaseAgent(
+            role="planner",
+            goal="Plan release actions",
+            constitution=rules,
+            adapter=PlannerAdapter(),
+            hooks=[gate],
+        )
+
+        rendered = agent.run("Should we deploy now?")
+        data = json.loads(rendered)
+
+        assert data["action"] == "deploy"
+        assert data["governance"]["triggered"] is True
+        assert data["governance"]["verdict"] in {
+            "proceed",
+            "reject",
+            "proceed_with_caution",
+            "reconsider",
+        }
+        assert "top_challenge" in data["governance"]
+
+    def test_full_transcript_render_mode_appends_text_transcript(self):
+        class TextAdapter:
+            def call(self, messages, system_prompt="", tools=None, max_tokens=4096):
+                return LLMResponse(
+                    content="Recommendation: deploy the billing-auth fix now.",
+                    input_tokens=9,
+                    output_tokens=6,
+                    cost_usd=0.0,
+                    duration_ms=1,
+                )
+
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        defender = BaseAgent(role="defender", goal="Defend", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        gate = GovernanceGateHook(
+            challenger=critic,
+            defender=defender,
+            judge=judge,
+            trigger_policy=DecisionPolicy(critical_keywords={"billing", "auth"}),
+            render_mode="full_transcript",
+        )
+        agent = BaseAgent(
+            role="planner",
+            goal="Plan release actions",
+            constitution=rules,
+            adapter=TextAdapter(),
+            hooks=[gate],
+        )
+
+        rendered = agent.run("Should we deploy the billing-auth fix?")
+
+        assert "[Governance Check]" in rendered
+        assert "challenges:" in rendered
+        assert "defenses:" in rendered
+        assert "trigger_reasons:" in rendered
+
+    def test_chat_response_formatter_returns_product_style_text(self):
+        formatter = GovernanceGateHook.chat_response_formatter("summary")
+        result = DebateResult(
+            verdict="proceed_with_caution",
+            score_delta=-3,
+            reasoning="Several concerns remain unresolved.",
+            challenges=["Rollback plan is still untested."],
+            defenses=["Rollback automation exists behind a feature flag."],
+        )
+        rendered = formatter(
+            '{"summary":"Deploy the billing-auth hotfix now.","action":"deploy","environment":"production","confidence":0.82}',
+            result,
+        )
+
+        assert "Recommendation: Deploy the billing-auth hotfix now." in rendered
+        assert "Environment: production" in rendered
+        assert "Confidence: 82%" in rendered
+        assert "Verdict: Proceed With Caution" in rendered
+        assert "Top concern: Rollback plan is still untested." in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +471,18 @@ class TestDebateHookLifecycle:
         result = debate.run("Test")
         assert result.verdict == "reject"
         assert result.reasoning == "Overridden by hook"
+        assert result.audit_trail[-1]["role"] == "hook"
+        assert result.audit_trail[-1]["stage"] == "post_verdict"
+
+    def test_post_verdict_invalid_mutation_raises_in_strict_mode(self):
+        class InvalidVerdictHook(DebateHook):
+            def post_verdict(self, result):
+                result.verdict = "ship_it"
+                return result
+
+        debate = _make_debate(hooks=[InvalidVerdictHook()])
+        with pytest.raises(Exception):
+            debate.run("Test")
 
     def test_pre_verdict_can_abort(self):
         class AbortHook(DebateHook):
@@ -214,6 +510,28 @@ class TestDebateHookValidationError:
         debate = _make_debate(hooks=[FallbackHook()])
         result = debate.run("Test")
         assert result.verdict is not None
+
+    def test_invalid_post_challenge_falls_back_when_not_strict(self):
+        class InvalidChallengesHook(DebateHook):
+            def post_challenge(self, challenges):
+                return ["ok", 123]
+
+        debate = _make_debate(hooks=[InvalidChallengesHook()])
+        debate.strict_validation = False
+        result = debate.run("Test")
+        assert all(isinstance(challenge, str) for challenge in result.challenges)
+
+    def test_post_challenge_mutation_is_audited(self):
+        class AppendChallengeHook(DebateHook):
+            def post_challenge(self, challenges):
+                return challenges + ["Hook-added challenge"]
+
+        debate = _make_debate(hooks=[AppendChallengeHook()])
+        result = debate.run("Test")
+        assert any(
+            entry.get("role") == "hook" and entry.get("stage") == "post_challenge"
+            for entry in result.audit_trail
+        )
 
 
 # ---------------------------------------------------------------------------

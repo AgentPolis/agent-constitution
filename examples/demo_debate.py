@@ -3,6 +3,7 @@
 Agent Constitution Demo: Adversarial Debate
 Run: python examples/demo_debate.py           # interactive prompt
      python examples/demo_debate.py --auto    # default topic, no prompt
+     python examples/demo_debate.py --topic "Should we build X?"
 No API key required.
 """
 import argparse
@@ -30,6 +31,11 @@ def main():
         action="store_true",
         help="Use default topic without prompting",
     )
+    parser.add_argument(
+        "--topic",
+        type=str,
+        help="Debate topic to evaluate without interactive prompting",
+    )
     args = parser.parse_args()
 
     console.print(Panel.fit(
@@ -39,7 +45,9 @@ def main():
     ))
 
     # Determine topic
-    if args.auto:
+    if args.topic:
+        topic = args.topic.strip()
+    elif args.auto:
         topic = DEFAULT_TOPIC
     else:
         topic = console.input("\n[bold]What topic should we debate?[/bold] ").strip()
@@ -101,15 +109,20 @@ def main():
         score = 35
         console.print(f"  Assessment: {assessment[:200]}")
 
-    # 3. Trigger debate
-    console.print(f"\n[bold]Step 3: Score {score} ≥ 32 → Triggering Adversarial Debate[/bold]")
     debate = Debate(challenger=critic, defender=analyst, judge=judge)
+    threshold = debate.SCORE_THRESHOLD
+
+    # 3. Trigger debate
+    console.print(
+        f"\n[bold]Step 3: Debate trigger check[/bold]\n"
+        f"  [dim]Rule: trigger structured debate only if score ≥ {threshold}/40[/dim]"
+    )
 
     if not debate.should_trigger(score):
-        console.print("  [dim]Score below threshold, debate not triggered[/dim]")
+        console.print(f"  [dim]Score {score} < {threshold} — debate not triggered[/dim]")
         return
 
-    console.print("  [yellow]⚔️  Debate triggered![/yellow]")
+    console.print(f"  [yellow]⚔️  Score {score} ≥ {threshold} — debate triggered![/yellow]")
 
     result = debate.run(topic=topic, initial_score=score)
 
@@ -132,8 +145,12 @@ def main():
     console.print(f"\n  [bold]Final Score:[/bold] [yellow]{score}[/yellow] → [green]{final_score}[/green]")
 
     # 5. Audit trail
-    console.print("\n[bold]Step 5: RunTrace Audit Trail[/bold]")
-    console.print(f"  [dim]{len(result.audit_trail)} debate steps recorded[/dim]")
+    console.print("\n[bold]Step 5: Debate Audit Trail[/bold]")
+    console.print(
+        "  [dim]Core debate uses 3 role steps (challenger, defender, judge). "
+        "Extra hook audit events appear only when hooks mutate the pipeline.[/dim]"
+    )
+    console.print(f"  [dim]{len(result.audit_trail)} audit entries recorded[/dim]")
     for entry in result.audit_trail:
         role = entry.get("role", "?")
         content = entry.get("content", "")[:80]

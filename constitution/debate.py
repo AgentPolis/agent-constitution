@@ -17,6 +17,50 @@ class DebateValidationError(ValueError):
     """Raised when LLM output fails schema validation."""
 
 
+def _ensure_string_list(values: list[str], *, label: str) -> list[str]:
+    if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+        raise DebateValidationError(f"{label} must remain list[str]")
+    if len(values) == 0:
+        raise DebateValidationError(f"{label} cannot be empty")
+    return values
+
+
+def _validate_result_object(result: DebateResult) -> DebateResult:
+    if result.verdict not in VALID_VERDICTS:
+        raise DebateValidationError(
+            f"Invalid verdict '{result.verdict}', must be one of {VALID_VERDICTS}"
+        )
+    if not isinstance(result.score_delta, int):
+        raise DebateValidationError("score_delta must remain an int")
+    if not isinstance(result.reasoning, str):
+        raise DebateValidationError("reasoning must remain a string")
+    result.score_delta = max(-10, min(5, result.score_delta))
+    result.challenges = _ensure_string_list(result.challenges, label="challenges")
+    result.defenses = _ensure_string_list(result.defenses, label="defenses")
+    if not isinstance(result.audit_trail, list):
+        raise DebateValidationError("audit_trail must remain a list")
+    return result
+
+
+def _append_hook_audit(
+    audit_trail: list[dict],
+    *,
+    stage: str,
+    before,
+    after,
+) -> None:
+    if before == after:
+        return
+    audit_trail.append({
+        "role": "hook",
+        "stage": stage,
+        "content": json.dumps(
+            {"before": before, "after": after},
+            ensure_ascii=False,
+        ),
+    })
+
+
 @dataclass
 class DebateResult:
     verdict: str                    # "proceed", "reject", "proceed_with_caution", "reconsider"
@@ -133,10 +177,36 @@ Generate exactly 3 specific challenges to this assessment. Format as JSON:
                 raise
             challenges = [challenger_response]
 
+        validated_challenges = list(challenges)
         challenges = self._hook.post_challenge(challenges)
+        try:
+            challenges = _ensure_string_list(challenges, label="challenges")
+        except DebateValidationError:
+            if self.strict_validation:
+                raise
+            challenges = validated_challenges
+        _append_hook_audit(
+            audit_trail,
+            stage="post_challenge",
+            before=validated_challenges,
+            after=challenges,
+        )
 
         # --- pre_defense hook ---
+        pre_defense_input = list(challenges)
         challenges = self._hook.pre_defense(challenges)
+        try:
+            challenges = _ensure_string_list(challenges, label="challenges")
+        except DebateValidationError:
+            if self.strict_validation:
+                raise
+            challenges = pre_defense_input
+        _append_hook_audit(
+            audit_trail,
+            stage="pre_defense",
+            before=pre_defense_input,
+            after=challenges,
+        )
 
         # --- Step 2: Generate + Validate defenses ---
         defender_prompt = f"""Topic: {topic}
@@ -159,7 +229,20 @@ Provide a defense for each challenge. Format as JSON:
                 raise
             defenses = [defender_response]
 
+        validated_defenses = list(defenses)
         defenses = self._hook.post_defense(defenses)
+        try:
+            defenses = _ensure_string_list(defenses, label="defenses")
+        except DebateValidationError:
+            if self.strict_validation:
+                raise
+            defenses = validated_defenses
+        _append_hook_audit(
+            audit_trail,
+            stage="post_defense",
+            before=validated_defenses,
+            after=defenses,
+        )
 
         # --- pre_verdict hook ---
         self._hook.pre_verdict(challenges, defenses)
@@ -198,6 +281,38 @@ Evaluate the debate and return verdict. Format as JSON:
         )
 
         # --- post_verdict hook ---
+        validated_result = DebateResult(
+            verdict=result.verdict,
+            score_delta=result.score_delta,
+            reasoning=result.reasoning,
+            challenges=list(result.challenges),
+            defenses=list(result.defenses),
+            audit_trail=list(result.audit_trail),
+        )
         result = self._hook.post_verdict(result)
+        try:
+            result = _validate_result_object(result)
+        except DebateValidationError:
+            if self.strict_validation:
+                raise
+            result = validated_result
+        _append_hook_audit(
+            result.audit_trail,
+            stage="post_verdict",
+            before={
+                "verdict": validated_result.verdict,
+                "score_delta": validated_result.score_delta,
+                "reasoning": validated_result.reasoning,
+                "challenges": validated_result.challenges,
+                "defenses": validated_result.defenses,
+            },
+            after={
+                "verdict": result.verdict,
+                "score_delta": result.score_delta,
+                "reasoning": result.reasoning,
+                "challenges": result.challenges,
+                "defenses": result.defenses,
+            },
+        )
 
         return result

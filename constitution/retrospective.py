@@ -1,6 +1,6 @@
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 
@@ -21,6 +21,7 @@ class Retrospective:
     CREDIBILITY_CORRECT = +0.05
     CREDIBILITY_INCORRECT = -0.10
     CREDIBILITY_PARTIAL = +0.01
+    VALID_OUTCOMES = {"correct", "incorrect", "partial"}
 
     def __init__(self):
         self.predictions: list[Prediction] = []
@@ -34,6 +35,9 @@ class Retrospective:
         verify_after_days: int = 7,
     ) -> Prediction:
         """Record a new prediction for future verification."""
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError(f"confidence must be between 0.0 and 1.0, got {confidence}")
+
         pred = Prediction(
             id=str(uuid.uuid4()),
             agent_role=agent_role,
@@ -57,13 +61,17 @@ class Retrospective:
             raise ValueError(f"Prediction {prediction_id} not found")
         if pred.outcome is not None:
             raise ValueError(f"Prediction {prediction_id} already verified as '{pred.outcome}'")
+        if outcome not in self.VALID_OUTCOMES:
+            raise ValueError(
+                f"outcome must be one of {sorted(self.VALID_OUTCOMES)}, got '{outcome}'"
+            )
 
         delta_map = {
             "correct": self.CREDIBILITY_CORRECT,
             "incorrect": self.CREDIBILITY_INCORRECT,
             "partial": self.CREDIBILITY_PARTIAL,
         }
-        delta = delta_map.get(outcome, 0.0)
+        delta = delta_map[outcome]
 
         pred.outcome = outcome
         pred.verified_at = datetime.now()

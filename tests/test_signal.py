@@ -4,8 +4,6 @@ Tests for Signal dataclass and SignalPool.
 
 from datetime import datetime, timedelta
 
-import pytest
-
 from constitution import Signal, SignalPool
 
 

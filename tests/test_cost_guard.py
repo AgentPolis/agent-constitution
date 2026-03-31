@@ -64,13 +64,15 @@ class TestCostGuardCallCount:
         guard = CostGuard()
         assert guard.call_count == 0
 
-    def test_call_count_increments_even_on_hard_limit_exceeded(self):
+    def test_call_count_not_incremented_on_hard_limit_exceeded(self):
+        """Pre-check: cost is NOT recorded if it would exceed hard limit."""
         guard = CostGuard(hard_limit_usd=1.0)
         try:
             guard.record(2.0)
         except RuntimeError:
             pass
-        assert guard.call_count == 1
+        assert guard.call_count == 0
+        assert guard.total_cost == 0.0
 
 
 class TestCostGuardReset:

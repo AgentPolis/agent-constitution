@@ -1,27 +1,51 @@
 #!/usr/bin/env python3
 """
 Agent Constitution Demo: Adversarial Debate
-Run: python examples/demo_debate.py
+Run: python examples/demo_debate.py           # interactive prompt
+     python examples/demo_debate.py --auto    # default topic, no prompt
 No API key required.
 """
+import argparse
+import json
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from constitution import BaseAgent, Constitution, Debate
+
 from adapters import MockAdapter
+from constitution import BaseAgent, Constitution, Debate
 
 console = Console()
 
+DEFAULT_TOPIC = "Should we build an AI-powered code review tool for enterprise teams?"
+
 def main():
+    parser = argparse.ArgumentParser(description="Agent Constitution Debate Demo")
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Use default topic without prompting",
+    )
+    args = parser.parse_args()
+
     console.print(Panel.fit(
-        "[bold blue]🏛️ Agent Constitution[/bold blue]\n"
-        "[dim]Adversarial Debate Demo — No API key required[/dim]",
+        "[bold blue]Agent Constitution[/bold blue]\n"
+        "[dim]Adversarial Debate Demo -- No API key required[/dim]",
         border_style="blue"
     ))
+
+    # Determine topic
+    if args.auto:
+        topic = DEFAULT_TOPIC
+    else:
+        topic = console.input("\n[bold]What topic should we debate?[/bold] ").strip()
+        if not topic:
+            topic = DEFAULT_TOPIC
+            console.print("[dim]No input -- using default topic.[/dim]")
 
     # 1. Setup
     console.print("\n[bold]Step 1: Initializing agents with Constitutional rules[/bold]")
@@ -48,16 +72,15 @@ def main():
         adapter=MockAdapter(),
         constitution=rules,
     )
-    console.print("  ✓ analyst (Nate) — MockAdapter")
-    console.print("  ✓ critic (Eve) — MockAdapter")
-    console.print("  ✓ judge (Solomon) — MockAdapter")
+    console.print("  analyst (Nate) -- MockAdapter")
+    console.print("  critic (Eve) -- MockAdapter")
+    console.print("  judge (Solomon) -- MockAdapter")
 
     # 2. Initial assessment
     console.print("\n[bold]Step 2: Analyst evaluates opportunity[/bold]")
-    topic = "Should we build an AI-powered code review tool for enterprise teams?"
+    console.print(f"  [dim]Topic: {topic}[/dim]")
     assessment = analyst.run(f"Evaluate this opportunity: {topic}")
 
-    import json
     try:
         data = json.loads(assessment)
         score = data.get("score", 35)
@@ -109,7 +132,7 @@ def main():
     console.print(f"\n  [bold]Final Score:[/bold] [yellow]{score}[/yellow] → [green]{final_score}[/green]")
 
     # 5. Audit trail
-    console.print(f"\n[bold]Step 5: RunTrace Audit Trail[/bold]")
+    console.print("\n[bold]Step 5: RunTrace Audit Trail[/bold]")
     console.print(f"  [dim]{len(result.audit_trail)} debate steps recorded[/dim]")
     for entry in result.audit_trail:
         role = entry.get("role", "?")

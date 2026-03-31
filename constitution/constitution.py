@@ -1,7 +1,6 @@
 from pathlib import Path
-from typing import Optional
-import yaml
 
+import yaml
 
 # Default constitutional rules
 DEFAULT_CONSTITUTION = """

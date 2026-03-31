@@ -10,12 +10,14 @@ class CostGuard:
         return self._total_cost
 
     def record(self, cost_usd: float) -> None:
-        self._total_cost += cost_usd
-        self._calls.append(cost_usd)
-        if self.total_cost >= self.hard_limit_usd:
+        new_total = self._total_cost + cost_usd
+        if new_total >= self.hard_limit_usd:
             raise RuntimeError(
-                f"Hard cost limit ${self.hard_limit_usd} exceeded (total: ${self.total_cost:.4f})"
+                f"Hard cost limit ${self.hard_limit_usd} would be exceeded "
+                f"(current: ${self._total_cost:.4f}, attempted: ${cost_usd:.4f})"
             )
+        self._total_cost = new_total
+        self._calls.append(cost_usd)
 
     def check_soft_limit(self) -> bool:
         """Returns True if soft limit is reached (warning signal, doesn't raise)."""

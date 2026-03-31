@@ -1,5 +1,6 @@
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
+
 from .signal import Signal
 
 

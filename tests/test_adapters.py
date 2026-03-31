@@ -3,10 +3,8 @@ Tests for the LLM adapter abstraction layer.
 All execution tests use MockAdapter only (no API key required).
 """
 
-import pytest
 
-from adapters import LLMAdapter, LLMResponse, ClaudeCLIAdapter, AnthropicAPIAdapter, MockAdapter
-
+from adapters import AnthropicAPIAdapter, ClaudeCLIAdapter, LLMAdapter, LLMResponse, MockAdapter
 
 # ---------------------------------------------------------------------------
 # LLMResponse field types
@@ -118,7 +116,8 @@ class TestMockAdapter:
             self._make_messages("analyse this"),
             system_prompt="You are an analyst agent.",
         )
-        assert "score" in resp.content
+        # debate-aware mock: analyst detected as defender returns defenses
+        assert "defenses" in resp.content or "score" in resp.content
 
     def test_detects_critic_role(self):
         adapter = MockAdapter(simulate_delay_ms=0)
@@ -180,5 +179,6 @@ class TestMockAdapter:
         adapter = MockAdapter(simulate_delay_ms=0)
         resp1 = adapter.call(self._make_messages("a"), system_prompt="You are an analyst.")
         resp2 = adapter.call(self._make_messages("b"), system_prompt="You are a critic.")
-        assert "score" in resp1.content
+        # debate-aware mock: analyst as defender, critic as challenger
+        assert "defenses" in resp1.content or "score" in resp1.content
         assert "challenges" in resp2.content

@@ -1,9 +1,11 @@
 from typing import Optional
 
-from adapters import LLMAdapter, LLMResponse, MockAdapter
+from adapters.base import LLMAdapter, LLMResponse
+from adapters.mock import MockAdapter
+
 from .constitution import Constitution
-from .trace import RunTrace
 from .cost_guard import CostGuard
+from .trace import RunTrace
 
 
 class BaseAgent:

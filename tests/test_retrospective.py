@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from constitution import Retrospective, Prediction
+from constitution import Prediction, Retrospective
 
 
 def _make_retro() -> Retrospective:
@@ -40,6 +40,11 @@ class TestRetrospectiveRecordPrediction:
         retro = _make_retro()
         retro.record_prediction("new_agent", "claim", 0.6)
         assert retro.get_credibility("new_agent") == 1.0
+
+    def test_record_rejects_invalid_confidence(self):
+        retro = _make_retro()
+        with pytest.raises(ValueError, match="confidence must be between 0.0 and 1.0"):
+            retro.record_prediction("analyst", "claim", 1.2)
 
 
 class TestRetrospectiveVerify:
@@ -78,6 +83,12 @@ class TestRetrospectiveVerify:
         retro.verify(pred.id, "correct")
         with pytest.raises(ValueError, match="already verified"):
             retro.verify(pred.id, "correct")
+
+    def test_verify_rejects_invalid_outcome(self):
+        retro = _make_retro()
+        pred = retro.record_prediction("analyst", "claim", 0.8)
+        with pytest.raises(ValueError, match="outcome must be one of"):
+            retro.verify(pred.id, "unknown")
 
     def test_verify_updates_agent_credibility(self):
         retro = _make_retro()

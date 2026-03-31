@@ -3,9 +3,10 @@
 Agent Constitution Demo: Real LLM via Anthropic API
 Run: ANTHROPIC_API_KEY=sk-ant-... python examples/demo_api.py
 """
-import sys
 import os
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Check API key first
@@ -19,8 +20,8 @@ if not api_key:
 from rich.console import Console
 from rich.panel import Panel
 
-from constitution import BaseAgent, Constitution, Debate
 from adapters import AnthropicAPIAdapter
+from constitution import BaseAgent, Constitution, Debate, DebateValidationError
 
 console = Console()
 
@@ -81,7 +82,11 @@ def main():
     debate = Debate(challenger=critic, defender=analyst, judge=judge)
     if debate.should_trigger(score):
         console.print(f"\n[yellow]⚔️  Score {score} ≥ 32 → Triggering debate...[/yellow]")
-        result = debate.run(topic=topic, initial_score=score)
+        try:
+            result = debate.run(topic=topic, initial_score=score)
+        except DebateValidationError as exc:
+            console.print(f"\n[red]Debate rejected invalid model output:[/red] {exc}")
+            sys.exit(2)
 
         console.print(f"\n[bold]Verdict:[/bold] [magenta]{result.verdict}[/magenta]")
         console.print(f"[bold]Score Delta:[/bold] {result.score_delta:+d}")

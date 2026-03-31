@@ -8,7 +8,7 @@ import json
 import pytest
 
 from adapters import MockAdapter
-from constitution import BaseAgent, Debate, DebateResult
+from constitution import BaseAgent, Debate, DebateResult, DebateValidationError
 
 
 def _make_agent(role: str, response_json: str) -> BaseAgent:
@@ -144,8 +144,7 @@ class TestDebateRun:
         result = debate.run("some topic")
         assert result.verdict in valid_verdicts
 
-    def test_debate_result_fallback_on_invalid_json(self):
-        # If judge returns non-JSON, should still get a DebateResult
+    def test_debate_raises_on_invalid_json_by_default(self):
         adapter = MockAdapter(
             role_responses={"judge": "not json at all"},
             simulate_delay_ms=0,
@@ -154,6 +153,23 @@ class TestDebateRun:
         defender = _make_agent("defender", DEFENDER_RESPONSE)
         judge = BaseAgent(role="judge", goal="Judge", adapter=adapter)
         debate = Debate(challenger=challenger, defender=defender, judge=judge)
+        with pytest.raises(DebateValidationError):
+            debate.run("some topic")
+
+    def test_debate_can_opt_into_fallback_mode(self):
+        adapter = MockAdapter(
+            role_responses={"judge": "not json at all"},
+            simulate_delay_ms=0,
+        )
+        challenger = _make_agent("challenger", CHALLENGER_RESPONSE)
+        defender = _make_agent("defender", DEFENDER_RESPONSE)
+        judge = BaseAgent(role="judge", goal="Judge", adapter=adapter)
+        debate = Debate(
+            challenger=challenger,
+            defender=defender,
+            judge=judge,
+            strict_validation=False,
+        )
         result = debate.run("some topic")
         assert isinstance(result, DebateResult)
         assert result.verdict == "proceed_with_caution"

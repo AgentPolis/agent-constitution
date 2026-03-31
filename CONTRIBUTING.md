@@ -51,7 +51,7 @@ All tests must pass with `MockAdapter` and zero API keys:
 pytest --tb=short -v
 ```
 
-138 tests currently. Please add tests for any new functionality.
+169 tests currently. Please add tests for any new functionality.
 
 ## Pull Request Guidelines
 

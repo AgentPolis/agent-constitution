@@ -1,11 +1,11 @@
 # Agent Constitution
 
-**Multi-agent governance for teams that want more than orchestration.**
+**Governance harness for agent systems that need more than orchestration.**
 **Adversarial debate, epistemic honesty, retrospective calibration.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests: 157 passed](https://img.shields.io/badge/tests-157%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
 
 ```mermaid
 flowchart LR
@@ -28,6 +28,25 @@ Agent Constitution helps agent teams do three things most frameworks leave to yo
 - encode epistemic rules in markdown instead of hidden prompt strings
 - force high-stakes outputs through structured adversarial review
 - track whether past judgments were actually right
+
+What this looks like in a product surface:
+
+```text
+Before governance
+Assistant:
+  Recommendation: Deploy the billing-auth hotfix now.
+
+After Agent Constitution summary gate
+Assistant:
+  Recommendation: Deploy the billing-auth hotfix now.
+  Confidence: 82%
+
+  Governance check triggered.
+  Verdict: Proceed With Caution
+  Score delta: -3
+  Why: Several concerns remain unresolved before the next gate.
+  Top concern: Rollback plan is still untested.
+```
 
 ```
 BEFORE                                    AFTER Agent Constitution
@@ -76,7 +95,7 @@ Adapter: mock
    Delta:      -3
    Final:      35 -> 32
 
-5. Audit trail (3 steps)
+4. Audit trail (3 steps)
 ```
 
 **Use real LLMs:**
@@ -101,9 +120,109 @@ ac debate "topic" --adapter claude --model sonnet
 - a provisional governance score computed from recorded runs
 - support for Mock, Anthropic, Ollama, and Claude CLI backends
 
+## How Debate Triggers
+
+`ac debate "topic"` does **not** skip straight to the challenger/defender/judge round.
+It runs in two stages:
+
+1. the analyst produces an initial scored assessment
+2. the debate engine checks whether that score crosses the trigger threshold
+
+By default, structured debate triggers only when the initial analyst score is **32/40 or higher**.
+
+- If score `>= 32`, the critic, defender, and judge run
+- If score `< 32`, the CLI exits after the initial assessment and records that debate was not triggered
+
+Quick ways to see it:
+
+```bash
+# Full CLI path: assessment first, then auto-trigger if threshold is met
+ac debate "Should we build an AI code review tool?"
+
+# Standalone mock demo with explicit topic input
+python examples/demo_debate.py --topic "Should we build an AI code review tool?"
+```
+
+If you want to force a debate programmatically, call `Debate.run(...)` directly after your own scoring step. The library-level trigger check is `Debate.should_trigger(score)`.
+
+## Integration Patterns
+
+The most practical way to use Agent Constitution is usually as a **library gate inside an existing agent pipeline**, not only as a standalone CLI.
+
+Common trigger patterns:
+
+1. Score-gated library call
+
+```python
+result = my_agent.run("Should we deploy to production?")
+score = extract_score(result)
+
+debate = Debate(challenger=critic, defender=my_agent, judge=judge)
+if debate.should_trigger(score):
+    verdict = debate.run(topic=result, initial_score=score)
+```
+
+2. Hook-based governance gate
+
+```python
+from constitution import BaseAgent, Constitution, DecisionPolicy, GovernanceGateHook
+
+policy = DecisionPolicy(
+    action_types={"deploy", "launch", "migrate"},
+    environments={"production"},
+    critical_keywords={"auth", "billing", "security"},
+    match_mode="any",
+)
+
+gate = GovernanceGateHook(
+    challenger=critic,
+    defender=defender,
+    judge=judge,
+    trigger_policy=policy,
+    render_mode="summary",  # "silent" | "summary" | "full_transcript"
+    response_formatter=GovernanceGateHook.chat_response_formatter("summary"),
+)
+
+agent = BaseAgent(
+    role="planner",
+    goal="Produce deployment recommendations",
+    constitution=Constitution.default(),
+    hooks=[gate],
+)
+
+response = agent.run("Should we deploy version 1.8.2 to production?")
+if gate.last_result is not None:
+    print(gate.last_result.verdict)
+    print(gate.last_trigger_reasons)
+```
+
+3. External workflow trigger
+
+Use your own rules to decide when a debate is mandatory, or let the built-in policy gate infer common high-stakes signals from planner output. This is the path that best fits external systems such as PM planners, deploy bots, PR reviewers, or memory pipelines that are not "Agent Constitution agents" themselves.
+
+Auto-trigger opportunities usually show up around:
+
+- production deploys
+- auth / billing / security-sensitive PRs
+- large architectural changes
+- expensive or irreversible business decisions
+- planner output with `action`, `environment`, or `decision_type` fields
+
+If your upstream system is not debate-aware, pass a dedicated `defender=` agent into `GovernanceGateHook(...)` so the gate can challenge the decision without requiring the original planner to emit debate-shaped JSON.
+
+User-facing render modes:
+
+- `silent`: keep the original response unchanged, but still populate `gate.last_result`
+- `summary`: append or inject a compact governance verdict for chat surfaces
+- `full_transcript`: attach challenges, defenses, and audit trail for audit-heavy views
+
+For chat products, pair `render_mode="summary"` with `GovernanceGateHook.chat_response_formatter("summary")` so the user sees a polished assistant reply instead of raw JSON enrichment.
+
+If you want the most guided end-user experience, start with `python examples/demo_interactive.py --mock`, then try `python examples/demo_governance_gate.py`, `python examples/demo_user_experience.py`, and `python examples/demo_chat_surface.py` to see what users would actually see in each render mode and in a chat-style before/after view.
+
 ---
 
-## Three Core Mechanisms
+## Four Core Mechanisms
 
 ### 1. Constitutional Governance
 
@@ -186,9 +305,20 @@ class CostApprovalHook(AgentHook):
     def on_cost_limit(self, agent, cost_usd, total_cost):
         return "warn"  # "raise" (default) | "warn" | "allow"
 
+# Built-in gate for existing agent pipelines
+from constitution import DecisionPolicy, GovernanceGateHook
+
 # Hooks compose — pass multiple, they chain in order
 debate = Debate(challenger, defender, judge, hooks=[AuditHook()])
 agent = BaseAgent(role="analyst", goal="Evaluate", hooks=[CostApprovalHook()])
+policy = DecisionPolicy.high_stakes_default()
+gate = GovernanceGateHook(
+    challenger=critic,
+    defender=defender,
+    judge=judge,
+    trigger_policy=policy,
+    render_mode="summary",
+)
 ```
 
 Available hook points:
@@ -199,12 +329,14 @@ Available hook points:
 | `AgentHook.post_call` | After LLM call | Response content |
 | `AgentHook.on_cost_limit` | Cost would exceed limit | Raise / warn / allow |
 | `DebateHook.pre_challenge` | Before challenger runs | Topic |
-| `DebateHook.post_challenge` | After challenge validation | Challenges list |
+| `DebateHook.post_challenge` | After challenge validation | Challenges list, revalidated before use |
 | `DebateHook.pre_defense` | Before defender runs | Challenges |
-| `DebateHook.post_defense` | After defense validation | Defenses list |
+| `DebateHook.post_defense` | After defense validation | Defenses list, revalidated before use |
 | `DebateHook.pre_verdict` | Before judge runs | Abort (raise) |
-| `DebateHook.post_verdict` | After verdict | Full result |
+| `DebateHook.post_verdict` | After verdict | Full result, revalidated before return |
 | `DebateHook.on_validation_error` | Schema validation fails | Raise / fallback |
+
+Hooks are best for logging, policy gates, and controlled transformations. In strict mode, any hook mutation that breaks the validated debate schema is rejected. `DecisionPolicy` lets a gate trigger from score, action type, environment, or critical keywords instead of relying on a single hard-coded score path.
 
 ---
 
@@ -236,20 +368,20 @@ The governance score tracks five dimensions: epistemic honesty, constitutional c
 
 ### Why Now: The Governance Gap
 
-2026 is the year of **agent governance**. Singapore launched the [world's first Agentic AI Governance Framework](https://www.imda.gov.sg/-/media/imda/files/about/emerging-tech-and-research/artificial-intelligence/mgf-for-agentic-ai.pdf) at WEF 2026. Gartner predicts 40% of enterprise apps will feature AI agents by year-end. Everyone is writing governance *policy papers*. Nobody has shipped the *code*.
+2026 is the year of **agent governance**. Singapore launched the [world's first Agentic AI Governance Framework](https://www.imda.gov.sg/-/media/imda/files/about/emerging-tech-and-research/artificial-intelligence/mgf-for-agentic-ai.pdf) at WEF 2026. Gartner predicts 40% of enterprise apps will feature AI agents by year-end. There is growing attention on governance, but most public discussion still sits at the framework or policy layer.
 
-Agent Constitution is that code.
+Agent Constitution is an attempt to turn that discussion into an installable governance workflow: explicit constitutional rules, policy-based triggering, structured adversarial review, and auditable outputs.
 
 ### Framework Comparison
 
 | Dimension | CrewAI | LangGraph | AutoGen | **Agent Constitution** |
 |-----------|--------|-----------|---------|----------------------|
 | Agent coordination | Yes | Yes | Yes | Debate-scoped |
-| **Adversarial debate** | - | - | Conversational | **Structured + schema-validated** |
+| **Adversarial debate** | - | - | Via GroupChat | **Structured + schema-validated** |
 | **Retrospective calibration** | - | - | - | **Yes** |
 | **Human-readable SOUL.md** | - | - | - | **Yes** |
 | Team governance | - | - | Limited | **Core feature** |
-| Cost tracking | Via LiteLLM | Via callbacks | - | **Built-in** |
+| Cost tracking | Via LiteLLM | Via callbacks | Via token tracking | **Built-in + hooks** |
 
 > Other frameworks solve *how* agents communicate. **We solve whether they're thinking honestly.**
 
@@ -257,7 +389,7 @@ Agent Constitution is that code.
 
 ## Personal Agent Mode
 
-Not just for multi-agent teams. Works for individuals too.
+The same governance ideas can wrap a single personal agent too.
 
 ```python
 from constitution import BaseAgent, Constitution
@@ -324,7 +456,7 @@ class MyAdapter(LLMAdapter):
 | [Rich](https://github.com/Textualize/rich) | CLI formatting and tables |
 | PyYAML | Constitution / SOUL.md loading |
 | httpx | HTTP client for Ollama and API adapters |
-| pytest | 138 tests, zero API keys required |
+| pytest | 169 tests, zero API keys required |
 | ruff | Linting and formatting |
 
 ---
@@ -366,7 +498,7 @@ constitution/
 
 ## Origin
 
-Extracted from a personal intelligence system with 21 specialized agents that has been running daily for months. The constitutional governance, adversarial debate, and retrospective calibration mechanisms were battle-tested in production before being extracted into this framework.
+Extracted from a larger personal agent system that experimented with specialized roles, constitutional prompts, and adversarial review. This repository narrows that broader setup down to the part that felt most reusable: the governance loop itself.
 
 ## Research Foundation
 
@@ -378,7 +510,9 @@ Agent Constitution draws on these findings to build a practical, installable gov
 
 ## Roadmap
 
-**v1 (current)** — Multi-Agent Governance Harness
+These are exploratory directions, not shipped features.
+
+**Current scope** — Governance harness
 - Constitutional agent governance via `SOUL.md`
 - Adversarial debate engine (challenger/defender/judge)
 - Retrospective calibration with credibility tracking
@@ -386,20 +520,19 @@ Agent Constitution draws on these findings to build a practical, installable gov
 - 4 LLM backends: Mock, Anthropic, Claude CLI, Ollama
 - `ac` CLI + Governance Score
 
-**v1.5 — Runtime Governance**
+**Near-term extensions**
 - Per-turn token budgets (not just session-level hard limits)
 - Permission gates on adapter calls (sub-agents get restricted scope)
 - Auto-compaction with semantic retention for long-running sessions
 - Consolidation engine: background learning extraction during idle time
 
-**v2 — Agent Growth Engine**
+**Longer-term experiments**
 - Skill auto-creation from experience (with adversarial review before promotion)
 - Dream/consolidation cycle: session end → extract learnings → update SOUL.md
 - Memory MCP server (recall/store/consolidate across sessions)
 
-**v3 — Protocol Layer**
 - Model Context Protocol integration (tools as MCP servers)
-- Agent-to-agent protocol support for cross-framework collaboration
+- Cross-framework collaboration patterns
 - Multi-platform gateway (Discord, Telegram, Slack)
 
 > Why governance first? Because protocols solve *how* agents communicate.

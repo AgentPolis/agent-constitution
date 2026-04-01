@@ -1,7 +1,14 @@
 from .base import LLMAdapter, LLMResponse
 from .mock import MockAdapter
 
-__all__ = ["LLMAdapter", "LLMResponse", "MockAdapter"]
+__all__ = [
+    "LLMAdapter",
+    "LLMResponse",
+    "MockAdapter",
+    "AnthropicAPIAdapter",
+    "ClaudeCLIAdapter",
+    "OllamaAdapter",
+]
 
 
 def __getattr__(name):

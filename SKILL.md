@@ -1,17 +1,18 @@
 # Agent Constitution Skill
 
-Use this project when you want structured adversarial review for a high-stakes judgment instead of a single unchallenged answer.
+Use this project when you want a governance harness around a machine-made decision, not just a stronger raw answer.
 
 ## When To Use
 
 - A decision needs an initial assessment plus explicit counterarguments
+- You want a single-agent or multi-agent system to become reviewable, challengeable, and auditable
 - You want challenger / defender / judge roles with an audit trail
 - You want a scored governance-oriented workflow rather than free-form multi-agent chat
 - You want a zero-API-key local demo with the mock adapter before switching to real models
 
 ## When Not To Use
 
-- You only need a single-agent answer
+- You only need a raw answer with no review, challenge, or audit step
 - You want open-ended agent collaboration without a scored trigger
 - You need a general orchestration framework more than a governance / debate layer
 - You want unconstrained brainstorming where every idea should flow through without a gate
@@ -75,7 +76,28 @@ Real-model adapters:
 ac debate "topic" --adapter anthropic
 ac debate "topic" --adapter ollama --model llama3
 ac debate "topic" --adapter claude --model sonnet
+ac debate "topic" --adapter claude --model sonnet --critic-model opus --judge-model opus
 ```
+
+## Model Expectations
+
+Do not assume the project automatically picks a stronger model for the critic or judge.
+
+Current behavior:
+
+- CLI mode supports one shared adapter/model plus optional per-role overrides such as `--critic-model ...` or `--judge-adapter ...`
+- Library mode lets you assign different adapters or models per role
+- Mixed-model debate is therefore supported, but it is still a caller decision, not an automatic policy
+
+Recommended mental model:
+
+- `MockAdapter`: structure, CI, onboarding, screenshots, deterministic demos
+- Smaller real model: low-risk internal prototyping
+- Stronger model for critic and judge: launch, security, compliance, pricing, architecture, memory contradiction, or other high-downside decisions
+
+If you only upgrade one role, upgrade the judge first or the critic + judge pair first. A premium analyst with a weak judge still leaves the most important arbitration step underpowered.
+
+For high-stakes use, treat Sonnet / Opus class models, or equivalent reasoning-tier models from another provider, as the practical default rather than the formal minimum.
 
 Built-in governance gate for existing agents:
 
@@ -130,6 +152,7 @@ For user-facing integrations, the hook can render three different experiences:
 - Additional audit entries may appear when hooks mutate the pipeline
 - `ac score` may be provisional / uncalibrated until retrospective verification exists
 - MockAdapter is for structure, onboarding, and CI; it is not evidence of real-model quality
+- CLI demos may look good with one shared model, but production users often want stronger critic / judge roles than analyst roles
 - `DecisionPolicy` can trigger debate from score, action type, environment, decision type, or critical keywords
 - If policy triggers without an explicit score, the gate seeds debate with the threshold score unless you provide your own scorer
 
@@ -189,3 +212,4 @@ Avoid framing it as generic brainstorming. This project is strongest when the ta
 - Provisional governance scores are mistaken for calibrated long-term evidence
 - Developer expects the upstream planner to act as the debate defender; in embedded workflows you often want a separate `defender=` agent
 - Developer expects automatic triggering from raw planner output but never defines a `DecisionPolicy`
+- User assumes the CLI automatically assigns premium models to judge-like roles; role-specific overrides now exist, but model strategy is still an explicit caller decision

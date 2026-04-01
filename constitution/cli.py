@@ -7,6 +7,7 @@ Usage:
     ac debate "Should we build X?" --adapter anthropic     # Anthropic API
     ac debate "topic" --adapter ollama --model llama3      # Ollama local
     ac debate "topic" --adapter claude --model sonnet      # Claude CLI
+    ac debate "topic" --critic-model opus --judge-model opus  # stronger critic/judge
     ac score                                               # Show Governance Score from recorded runs
 """
 import argparse
@@ -21,6 +22,7 @@ from rich.table import Table
 console = Console()
 WORKSPACE_DIR = Path("workspace")
 GOVERNANCE_HISTORY_PATH = WORKSPACE_DIR / "governance_history.json"
+ADAPTER_CHOICES = ("mock", "anthropic", "ollama", "claude")
 
 
 def _load_governance_history() -> list[dict]:
@@ -118,6 +120,22 @@ def _build_governance_record(
         challenges_count = len(result.challenges)
         defenses_count = len(result.defenses)
 
+        if len(result.audit_trail) < 3:
+            return {
+                "topic": topic,
+                "score": score,
+                "debate_triggered": debate_triggered,
+                "epistemic_honesty": _epistemic_honesty_score(raw_responses),
+                "constitutional_compliance": sum(constitutional_checks) / len(constitutional_checks),
+                "debate_rigor": 0.0,
+                "calibration_accuracy": calibration_accuracy,
+                "audit_completeness": 0.0,
+                "responses_analyzed": len(raw_responses),
+                "audit_trail_entries": audit_trail_entries,
+                "challenges_count": challenges_count,
+                "defenses_count": defenses_count,
+            }
+
         challenger_raw = result.audit_trail[0]["content"]
         defender_raw = result.audit_trail[1]["content"]
         judge_raw = result.audit_trail[2]["content"]
@@ -207,18 +225,35 @@ def _build_adapter(adapter_name: str, model: str | None):
     sys.exit(1)
 
 
+def _resolve_role_config(args: argparse.Namespace, role: str) -> tuple[str, str | None]:
+    adapter_name = getattr(args, f"{role}_adapter", None) or args.adapter
+    model_name = getattr(args, f"{role}_model", None) or args.model
+    return adapter_name, model_name
+
+
+def _format_adapter_label(adapter_name: str, model_name: str | None) -> str:
+    if model_name:
+        return f"{adapter_name} ({model_name})"
+    return adapter_name
+
+
 def cmd_debate(args: argparse.Namespace) -> None:
     """Run a structured adversarial debate on the given topic."""
     from constitution import BaseAgent, Constitution, Debate, DebateValidationError
 
-    adapter = _build_adapter(args.adapter, args.model)
-    adapter_label = args.adapter
-    if args.model:
-        adapter_label += f" ({args.model})"
+    analyst_adapter_name, analyst_model = _resolve_role_config(args, "analyst")
+    critic_adapter_name, critic_model = _resolve_role_config(args, "critic")
+    judge_adapter_name, judge_model = _resolve_role_config(args, "judge")
+
+    analyst_adapter = _build_adapter(analyst_adapter_name, analyst_model)
+    critic_adapter = _build_adapter(critic_adapter_name, critic_model)
+    judge_adapter = _build_adapter(judge_adapter_name, judge_model)
 
     console.print(Panel.fit(
         "[bold blue]Agent Constitution[/bold blue]  |  Adversarial Debate\n"
-        f"[dim]Adapter: {adapter_label}[/dim]",
+        f"[dim]Analyst: {_format_adapter_label(analyst_adapter_name, analyst_model)}[/dim]\n"
+        f"[dim]Critic:  {_format_adapter_label(critic_adapter_name, critic_model)}[/dim]\n"
+        f"[dim]Judge:   {_format_adapter_label(judge_adapter_name, judge_model)}[/dim]",
         border_style="blue",
     ))
 
@@ -229,28 +264,28 @@ def cmd_debate(args: argparse.Namespace) -> None:
         role="analyst",
         goal="Evaluate business opportunities with honest, calibrated assessments",
         persona="Methodical and data-driven. Never overstates confidence.",
-        adapter=adapter,
+        adapter=analyst_adapter,
         constitution=rules,
     )
     critic = BaseAgent(
         role="critic",
         goal="Challenge assumptions and surface blind spots",
         persona="Sharp and contrarian by design. Raises exactly 3 challenges.",
-        adapter=adapter,
+        adapter=critic_adapter,
         constitution=rules,
     )
     judge = BaseAgent(
         role="judge",
         goal="Evaluate debate arguments impartially and render fair verdicts",
         persona="Measured and impartial. Weights argument quality over role.",
-        adapter=adapter,
+        adapter=judge_adapter,
         constitution=rules,
     )
 
     console.print("\n[bold]1. Agents initialized[/bold]")
-    console.print(f"   analyst  | {adapter_label}")
-    console.print(f"   critic   | {adapter_label}")
-    console.print(f"   judge    | {adapter_label}")
+    console.print(f"   analyst  | {_format_adapter_label(analyst_adapter_name, analyst_model)}")
+    console.print(f"   critic   | {_format_adapter_label(critic_adapter_name, critic_model)}")
+    console.print(f"   judge    | {_format_adapter_label(judge_adapter_name, judge_model)}")
 
     # --- initial assessment ---
     topic = args.topic
@@ -446,15 +481,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     debate_parser.add_argument(
         "--adapter",
-        choices=["mock", "anthropic", "ollama", "claude"],
+        choices=ADAPTER_CHOICES,
         default="mock",
-        help="LLM adapter to use (default: mock)",
+        help="Default LLM adapter for all debate roles unless a role-specific override is provided",
     )
     debate_parser.add_argument(
         "--model",
         default=None,
-        help="Model name to pass to the adapter",
+        help="Default model for all debate roles unless a role-specific override is provided",
     )
+    for role in ("analyst", "critic", "judge"):
+        debate_parser.add_argument(
+            f"--{role}-adapter",
+            choices=ADAPTER_CHOICES,
+            default=None,
+            help=f"Override adapter for the {role} role",
+        )
+        debate_parser.add_argument(
+            f"--{role}-model",
+            default=None,
+            help=f"Override model for the {role} role",
+        )
 
     # --- score ---
     subparsers.add_parser(

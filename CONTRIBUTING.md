@@ -1,6 +1,6 @@
 # Contributing to Agent Constitution
 
-Thanks for your interest. Here's how to get started.
+Thanks for your interest in contributing. Here's how to get started.
 
 ## Setup
 
@@ -51,7 +51,7 @@ All tests must pass with `MockAdapter` and zero API keys:
 pytest --tb=short -v
 ```
 
-169 tests currently. Please add tests for any new functionality.
+206 tests currently. Please add tests for any new functionality.
 
 ## Pull Request Guidelines
 

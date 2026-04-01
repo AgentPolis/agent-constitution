@@ -524,13 +524,21 @@ class MockAdapter(LLMAdapter):
         # Final fallback — should never be reached in practice.
         fallback = {
             "challenger": {
-                "challenges": [],
-                "severity": "low",
-                "confidence": 0.50,
+                "challenges": [
+                    "Insufficient data to validate core assumptions.",
+                    "Risk factors have not been adequately addressed.",
+                    "Market conditions may not support the proposed approach.",
+                ],
+                "severity": "medium",
+                "confidence": 0.30,
             },
             "defender": {
-                "defenses": [],
-                "confidence": 0.50,
+                "defenses": [
+                    "The core approach is grounded in established patterns.",
+                    "Risk mitigation strategies are in place.",
+                    "Market analysis supports the general direction.",
+                ],
+                "confidence": 0.30,
             },
             "judge": {
                 "verdict": "proceed_with_caution",

@@ -1,11 +1,10 @@
 # Agent Constitution
 
-**Governance harness for agent systems that need more than orchestration.**
-**Adversarial debate, epistemic honesty, retrospective calibration.**
+**Governance harness for decision-making systems that need more than a raw answer.**
+**Works for single-agent and multi-agent workflows. Adds structured review, epistemic honesty, and retrospective calibration.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
 
 ```mermaid
 flowchart LR
@@ -23,10 +22,18 @@ flowchart LR
     style F fill:#d97706,color:#fff,stroke:none
 ```
 
-Agent Constitution helps agent teams do three things most frameworks leave to you:
+Agent Constitution is a governance layer you can place around an existing assistant, planner, reviewer, or agent pipeline.
 
-- encode epistemic rules in markdown instead of hidden prompt strings
-- force high-stakes outputs through structured adversarial review
+It is not only for multi-agent systems. You can use it to harden:
+
+- a single assistant that needs challenge and review before acting
+- a planner or deploy bot that should trigger governance only on high-stakes outputs
+- a multi-agent workflow that needs explicit arbitration instead of free-form consensus
+
+Agent Constitution helps these systems do three things that are often handled ad hoc:
+
+- encode epistemic rules in markdown instead of inline prompt strings
+- route high-stakes outputs through structured adversarial review
 - track whether past judgments were actually right
 
 What this looks like in a product surface:
@@ -61,8 +68,14 @@ Critic:  "I agree, looks promising."       Critic:  "Market size is [SPECULATION
                                              challenger was RIGHT. Credibility +0.05
 ```
 
-> Other frameworks solve *how* agents communicate.
-> Agent Constitution solves *whether agents are thinking honestly*.
+> Other frameworks solve *how* components communicate.
+> Agent Constitution focuses on *how decisions get challenged, judged, and audited*.
+
+Short answers to the obvious questions:
+
+- `Can I use this with a single agent?` Yes. A single assistant can still be wrapped with trigger rules, challenger/judge review, and audit history.
+- `Do I need premium models everywhere?` No. Use stronger models where arbitration quality matters most, usually the critic and judge.
+- `When does this add value over a single stronger model?` When the decision itself benefits from an explicit review process, not only a higher-quality answer.
 
 ---
 
@@ -77,7 +90,9 @@ ac debate "Should we build an AI code review tool?"
 
 ```
 Agent Constitution  |  Adversarial Debate
-Adapter: mock
+Analyst: mock
+Critic:  mock
+Judge:   mock
 
 1. Agents initialized
    analyst  | mock
@@ -111,6 +126,9 @@ ac debate "topic" --adapter ollama --model llama3
 
 # Claude CLI
 ac debate "topic" --adapter claude --model sonnet
+
+# Mixed-model debate from the CLI
+ac debate "topic" --adapter claude --model sonnet --critic-model opus --judge-model opus
 ```
 
 **What you get right away:**
@@ -119,6 +137,69 @@ ac debate "topic" --adapter claude --model sonnet
 - strict schema validation for challenger, defender, and judge output
 - a provisional governance score computed from recorded runs
 - support for Mock, Anthropic, Ollama, and Claude CLI backends
+
+## Model Strategy
+
+Agent Constitution does **not** require Sonnet- or Opus-class models to function, but model quality has a direct effect on debate quality.
+
+- For onboarding, CI, and structure checks, `MockAdapter` is enough
+- For lightweight product demos or internal prototyping, a smaller real model can be acceptable
+- For high-stakes review, use a stronger reasoning model for at least the critic and judge roles
+- For launch, security, compliance, pricing, architecture, or memory-conflict decisions, Sonnet / Opus class models or their equivalent are strongly recommended
+
+Current role-model behavior:
+
+- CLI path: `ac debate ... --adapter ... --model ...` still gives you a fast shared default, but now also supports `--analyst-*`, `--critic-*`, and `--judge-*` overrides
+- Library path: you can give each `BaseAgent(...)` its **own adapter and model**, so heterogeneous debate is also supported programmatically
+- Product choice today: same-model debates remain the easy path; mixed-model debates are now a first-class advanced option
+
+Example: heterogeneous role setup
+
+```python
+from adapters import AnthropicAPIAdapter
+from constitution import BaseAgent, Constitution, Debate
+
+rules = Constitution.default()
+
+analyst = BaseAgent(
+    role="analyst",
+    goal="Produce the initial opportunity assessment",
+    adapter=AnthropicAPIAdapter(model="claude-sonnet-4-5"),
+    constitution=rules,
+)
+critic = BaseAgent(
+    role="critic",
+    goal="Pressure-test the assessment and surface hidden risks",
+    adapter=AnthropicAPIAdapter(model="claude-opus-4-1"),
+    constitution=rules,
+)
+judge = BaseAgent(
+    role="judge",
+    goal="Render the most reliable final verdict",
+    adapter=AnthropicAPIAdapter(model="claude-opus-4-1"),
+    constitution=rules,
+)
+
+debate = Debate(challenger=critic, defender=analyst, judge=judge)
+```
+
+Equivalent CLI pattern:
+
+```bash
+ac debate "Should we ship this pricing change?" \
+  --adapter claude \
+  --model sonnet \
+  --critic-model opus \
+  --judge-model opus
+```
+
+Three practical lenses:
+
+- Developer: start with one shared model to simplify ops, then split judge / critic onto stronger models when accuracy matters more than cost
+- Product manager: if the debate outcome changes user-visible recommendations, budget for a stronger judge before you budget for a fancier analyst
+- Agent designer: the critic and judge usually benefit most from stronger reasoning; the analyst can often be cheaper if its output is challengeable and schema-validated
+
+One caution: a stronger model does not replace good role design. If the personas, constitutions, and trigger policy are weak, using Opus everywhere mostly makes expensive bad process.
 
 ## How Debate Triggers
 
@@ -243,7 +324,7 @@ Evaluate opportunities with calibrated, multi-dimensional assessments.
 - Always present the bear case before the bull case
 ```
 
-No more rules buried in Python strings. Edit a markdown file to change how an agent thinks.
+Rules live in version-controlled markdown instead of inline strings. Edit a markdown file to change how an agent thinks.
 
 ### 2. Adversarial Debate
 
@@ -354,10 +435,10 @@ Dimension                  Score   Weight
 Epistemic Honesty          8/10    25%
 Constitutional Compliance  7/10    25%
 Debate Rigor               6/10    20%
-Calibration Accuracy       7/10    15%
+Calibration Accuracy       N/A     15%
 Audit Completeness         9/10    15%
 
-Weighted Governance Score: 7.8/10
+Provisional Governance Score: 6.3/10
 ```
 
 The governance score tracks five dimensions: epistemic honesty, constitutional compliance, debate rigor, calibration accuracy, and audit completeness. `ac debate` records governance data to `workspace/governance_history.json`, and `ac score` aggregates those real runs instead of printing placeholders. Until you verify retrospectives, the report stays explicitly **uncalibrated** and should be treated as a provisional operational snapshot rather than a final grade.
@@ -370,20 +451,22 @@ The governance score tracks five dimensions: epistemic honesty, constitutional c
 
 2026 is the year of **agent governance**. Singapore launched the [world's first Agentic AI Governance Framework](https://www.imda.gov.sg/-/media/imda/files/about/emerging-tech-and-research/artificial-intelligence/mgf-for-agentic-ai.pdf) at WEF 2026. Gartner predicts 40% of enterprise apps will feature AI agents by year-end. There is growing attention on governance, but most public discussion still sits at the framework or policy layer.
 
-Agent Constitution is an attempt to turn that discussion into an installable governance workflow: explicit constitutional rules, policy-based triggering, structured adversarial review, and auditable outputs.
+Agent Constitution is one attempt to turn that discussion into installable code: explicit constitutional rules, policy-based triggering, structured adversarial review, and auditable outputs. It is not the only way to approach this problem, but it is a concrete starting point.
 
-### Framework Comparison
+### Where It Sits in the Ecosystem
 
-| Dimension | CrewAI | LangGraph | AutoGen | **Agent Constitution** |
+Agent Constitution is not a replacement for orchestration frameworks. It is a governance layer that can work alongside them.
+
+| Dimension | CrewAI | LangGraph | AutoGen | Agent Constitution |
 |-----------|--------|-----------|---------|----------------------|
-| Agent coordination | Yes | Yes | Yes | Debate-scoped |
-| **Adversarial debate** | - | - | Via GroupChat | **Structured + schema-validated** |
-| **Retrospective calibration** | - | - | - | **Yes** |
-| **Human-readable SOUL.md** | - | - | - | **Yes** |
-| Team governance | - | - | Limited | **Core feature** |
-| Cost tracking | Via LiteLLM | Via callbacks | Via token tracking | **Built-in + hooks** |
+| Agent coordination | Yes | Yes | Yes | Debate-scoped only |
+| Adversarial debate | Not built-in | Not built-in | Via GroupChat | Structured + schema-validated |
+| Retrospective calibration | Not built-in | Not built-in | Not built-in | Yes |
+| Human-readable rules (SOUL.md) | Not built-in | Not built-in | Not built-in | Yes |
+| Team governance | Not built-in | Not built-in | Limited | Core focus |
+| Cost tracking | Via LiteLLM | Via callbacks | Via token tracking | Built-in + hooks |
 
-> Other frameworks solve *how* agents communicate. **We solve whether they're thinking honestly.**
+These frameworks solve *how* agents coordinate. Agent Constitution focuses on a different question: *how decisions get challenged, judged, and audited*. They are complementary rather than competing.
 
 ---
 
@@ -456,7 +539,7 @@ class MyAdapter(LLMAdapter):
 | [Rich](https://github.com/Textualize/rich) | CLI formatting and tables |
 | PyYAML | Constitution / SOUL.md loading |
 | httpx | HTTP client for Ollama and API adapters |
-| pytest | 169 tests, zero API keys required |
+| pytest | 206 tests, zero API keys required |
 | ruff | Linting and formatting |
 
 ---
@@ -492,19 +575,29 @@ constitution/
 
 - **Generator/Validator separation**: Every LLM response is generated, then validated by a separate function. The debate engine uses `_validate_challenges()`, `_validate_defenses()`, and `_validate_verdict()` and raises `DebateValidationError` on malformed debate output by default.
 - **Constitution as prompt injection**: Rules live in markdown files, not Python strings. `SOUL.md` files are human-readable and version-controllable.
-- **Cost guard with hard limit**: Budget limits are enforced after each LLM call. When cumulative cost would exceed the hard limit, the guard raises `CostLimitExceeded` and halts further calls.
+- **Cost guard with hard limit**: Budget limits are checked before recording each call's cost. When cumulative cost would exceed the hard limit, the guard raises `CostLimitExceeded` and halts further calls.
 
 ---
 
 ## Origin
 
-Extracted from a larger personal agent system that experimented with specialized roles, constitutional prompts, and adversarial review. This repository narrows that broader setup down to the part that felt most reusable: the governance loop itself.
+Agent Constitution emerged from sustained experimentation with real decision workflows, review gates, and agent-mediated judgment loops.
+
+It reflects a point of view shaped by implementation and repeated testing: for certain classes of decisions, improving model capability alone may not be enough. The decision itself can benefit from explicit challenge, arbitration, and auditability.
+
+This repository does not present itself as a finalized standard for agent governance. It is a concrete, working proposal for how governance can be added to machine-made decisions without rebuilding an entire system from scratch.
+
+We hope it serves both as a usable toolkit and as an invitation:
+
+- to evaluate these ideas in real workflows
+- to challenge the assumptions behind them
+- to contribute stronger evidence, counterexamples, and better patterns
 
 ## Research Foundation
 
 Multi-agent debate improves factual reasoning and reduces hallucination ([Du et al., 2023](https://arxiv.org/abs/2305.14325)). Heterogeneous agents with dynamic debate mechanisms outperform homogeneous approaches ([FREE-MAD, 2025](https://arxiv.org/abs/2509.11035)).
 
-Agent Constitution draws on these findings to build a practical, installable governance framework.
+Agent Constitution draws on these findings and adapts them into a practical, installable governance workflow. The research is still evolving, and so is this project.
 
 ---
 
@@ -535,9 +628,9 @@ These are exploratory directions, not shipped features.
 - Cross-framework collaboration patterns
 - Multi-platform gateway (Discord, Telegram, Slack)
 
-> Why governance first? Because protocols solve *how* agents communicate.
-> Agent Constitution solves *whether agents are thinking honestly*.
-> The governance layer is what makes everything else trustworthy.
+> Why start with governance? Because protocols solve *how* agents communicate.
+> Agent Constitution focuses on a complementary question: *how decisions get challenged, judged, and audited*.
+> We believe this layer is worth getting right early.
 
 ---
 

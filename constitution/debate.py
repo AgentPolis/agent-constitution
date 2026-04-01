@@ -34,7 +34,14 @@ def _validate_result_object(result: DebateResult) -> DebateResult:
         raise DebateValidationError("score_delta must remain an int")
     if not isinstance(result.reasoning, str):
         raise DebateValidationError("reasoning must remain a string")
+    original_delta = result.score_delta
     result.score_delta = max(-10, min(5, result.score_delta))
+    if result.score_delta != original_delta:
+        logger.warning(
+            "score_delta clamped from %d to %d (valid range: -10 to 5)",
+            original_delta,
+            result.score_delta,
+        )
     result.challenges = _ensure_string_list(result.challenges, label="challenges")
     result.defenses = _ensure_string_list(result.defenses, label="defenses")
     if not isinstance(result.audit_trail, list):

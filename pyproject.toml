@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-constitution"
 version = "0.1.0"
-description = "Multi-agent governance framework with adversarial debate, epistemic honesty, and retrospective calibration"
+description = "Governance harness for decision-making systems with structured review, epistemic honesty, and retrospective calibration"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{name = "AgentPolis", email = "hs.ze.lab@gmail.com"}]
 requires-python = ">=3.11"
-keywords = ["multi-agent", "llm", "governance", "debate", "ai-agents"]
+keywords = ["governance", "decision-making", "llm", "debate", "ai-agents", "single-agent", "multi-agent"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

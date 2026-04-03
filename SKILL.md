@@ -51,7 +51,6 @@ Use the path that matches the goal:
 - Real-model CLI workflow: `ac debate "topic" --adapter ...`
 - Programmatic control over scoring and triggering: `Debate.should_trigger(score)` + `Debate.run(...)`
 - Embedded pipeline gate: `GovernanceGateHook(challenger=..., judge=..., trigger_policy=...)`
-- Specialized contradiction / governance demo: `python examples/demo_memory_contradiction.py`
 - External planner / deploy gate demo: `python examples/demo_governance_gate.py`
 - Chat-style before/after demo: `python examples/demo_chat_surface.py`
 

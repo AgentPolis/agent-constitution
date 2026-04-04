@@ -36,33 +36,33 @@ class LiveDebateHook(DebateHook):
     """Print each debate stage live so the user sees the process unfold."""
 
     def pre_challenge(self, topic: str) -> str:
-        console.print("\n  [bold yellow]▶ Challenger 正在分析弱點...[/bold yellow]")
+        console.print("\n  [bold yellow]▶ Challenger is analyzing weak points...[/bold yellow]")
         return topic
 
     def post_challenge(self, challenges: list[str]) -> list[str]:
         console.print(Panel(
             "\n".join(f"[red]{i}.[/red] {c}" for i, c in enumerate(challenges, 1)),
-            title="[bold red]Challenger 質疑[/bold red]",
+            title="[bold red]Challenger Critique[/bold red]",
             border_style="red",
             padding=(1, 2),
         ))
         return challenges
 
     def pre_defense(self, challenges: list[str]) -> list[str]:
-        console.print("  [bold yellow]▶ Defender 正在準備回擊...[/bold yellow]")
+        console.print("  [bold yellow]▶ Defender is preparing rebuttals...[/bold yellow]")
         return challenges
 
     def post_defense(self, defenses: list[str]) -> list[str]:
         console.print(Panel(
             "\n".join(f"[green]{i}.[/green] {d}" for i, d in enumerate(defenses, 1)),
-            title="[bold green]Defender 辯護[/bold green]",
+            title="[bold green]Defender Rebuttal[/bold green]",
             border_style="green",
             padding=(1, 2),
         ))
         return defenses
 
     def pre_verdict(self, challenges, defenses):
-        console.print("  [bold yellow]▶ Judge 正在權衡雙方論點...[/bold yellow]")
+        console.print("  [bold yellow]▶ Judge is weighing both sides...[/bold yellow]")
 
     def post_verdict(self, result: DebateResult) -> DebateResult:
         verdict_colors = {
@@ -72,19 +72,19 @@ class LiveDebateHook(DebateHook):
             "reconsider": "bold magenta",
         }
         verdict_labels = {
-            "proceed": "通過 — 可以執行",
-            "reject": "駁回 — 不建議執行",
-            "proceed_with_caution": "有條件通過 — 注意風險",
-            "reconsider": "需要重新考慮",
+            "proceed": "Proceed - evidence supports execution",
+            "reject": "Reject - do not proceed",
+            "proceed_with_caution": "Proceed with caution - risks remain",
+            "reconsider": "Reconsider - needs another pass",
         }
         color = verdict_colors.get(result.verdict, "bold white")
         label = verdict_labels.get(result.verdict, result.verdict)
 
         console.print(Panel(
             f"[{color}]{label}[/{color}]\n\n"
-            f"[bold]Score 變化：[/bold]{result.score_delta:+d}\n\n"
-            f"[bold]理由：[/bold]\n{result.reasoning}",
-            title="[bold magenta]Judge 裁決[/bold magenta]",
+            f"[bold]Score delta:[/bold] {result.score_delta:+d}\n\n"
+            f"[bold]Reasoning:[/bold]\n{result.reasoning}",
+            title="[bold magenta]Judge Verdict[/bold magenta]",
             border_style="magenta",
             padding=(1, 2),
         ))
@@ -97,46 +97,46 @@ class LiveDebateHook(DebateHook):
 
 PRESETS = {
     "1": {
-        "name": "技術決策",
-        "topic": "Should we rewrite our monolith backend from Python to Rust for 10x performance?",
+        "name": "Pricing decision",
+        "topic": "Should we launch usage-based pricing for enterprise API customers this quarter?",
     },
     "2": {
-        "name": "產品決策",
-        "topic": "Should we pivot from B2B SaaS to open-source with a managed cloud offering?",
+        "name": "Market expansion",
+        "topic": "Should we expand from mid-market to enterprise before hiring a dedicated solutions engineering team?",
     },
     "3": {
-        "name": "架構決策",
-        "topic": "Should we migrate from REST API to GraphQL across all 12 microservices?",
+        "name": "Platform decision",
+        "topic": "Should we consolidate three internal tools into a single customer workflow platform this half?",
     },
     "4": {
-        "name": "人員決策",
-        "topic": "Should we hire 5 junior developers instead of 2 senior developers to scale faster?",
+        "name": "Organization design",
+        "topic": "Should we reorganize product and engineering into vertical pods before the Q4 launch?",
     },
     "5": {
-        "name": "投資決策",
-        "topic": "Should we raise a $10M Series A now at 40x revenue multiple, or wait 6 months for better metrics?",
+        "name": "Financing decision",
+        "topic": "Should we raise a Series A now or extend runway six months and target stronger net revenue retention first?",
     },
 }
 
 
 def pick_topic() -> str:
     """Let user pick a preset or type their own."""
-    console.print("\n[bold]選一個情境，或自己輸入：[/bold]\n")
+    console.print("\n[bold]Pick a scenario, or enter your own:[/bold]\n")
     for key, preset in PRESETS.items():
         console.print(f"  [cyan]{key}[/cyan]. {preset['name']}")
         console.print(f"     [dim]{preset['topic'][:70]}...[/dim]")
-    console.print("  [cyan]6[/cyan]. 自己輸入\n")
+    console.print("  [cyan]6[/cyan]. Enter my own topic\n")
 
-    choice = console.input("[bold]選擇 (1-6): [/bold]").strip()
+    choice = console.input("[bold]Choose (1-6): [/bold]").strip()
     if choice in PRESETS:
         topic = PRESETS[choice]["topic"]
         console.print(f"\n  [dim]→ {topic}[/dim]")
         return topic
     else:
-        topic = console.input("\n[bold]輸入你的決策問題：[/bold] ").strip()
+        topic = console.input("\n[bold]Enter your decision question:[/bold] ").strip()
         if not topic:
             topic = PRESETS["1"]["topic"]
-            console.print(f"  [dim]→ 使用預設：{topic}[/dim]")
+            console.print(f"  [dim]→ Using default: {topic}[/dim]")
         return topic
 
 
@@ -146,33 +146,33 @@ def main():
     args = parser.parse_args()
 
     console.print(Panel.fit(
-        "[bold blue]Agent Constitution — 互動辯論體驗[/bold blue]\n"
-        "[dim]你的 AI agent 在做重大決策前，會先被挑戰。[/dim]",
+        "[bold blue]Agent Constitution - Interactive Debate Experience[/bold blue]\n"
+        "[dim]High-stakes decisions get challenged before they become commitments.[/dim]",
         border_style="blue",
     ))
 
-    # ── Adapter selection ──
+    # Adapter selection
     use_mock = args.mock
     if not use_mock:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            console.print("[yellow]未偵測到 ANTHROPIC_API_KEY，使用 MockAdapter[/yellow]")
+            console.print("[yellow]ANTHROPIC_API_KEY not found. Falling back to MockAdapter.[/yellow]")
             use_mock = True
 
     if use_mock:
         from adapters import MockAdapter
         adapter = MockAdapter()
-        console.print("[dim]Mode: MockAdapter (罐頭回應，但完整展示流程)[/dim]")
+        console.print("[dim]Mode: MockAdapter (canned responses, full flow demo)[/dim]")
     else:
         from adapters import AnthropicAPIAdapter
         adapter = AnthropicAPIAdapter(model="claude-haiku-4-5-20251001", api_key=api_key)
-        console.print("[dim]Mode: Anthropic API (claude-haiku-4-5，真實 LLM 辯論)[/dim]")
+        console.print("[dim]Mode: Anthropic API (claude-haiku-4-5, live LLM debate)[/dim]")
 
-    # ── Pick topic ──
+    # Pick topic
     topic = pick_topic()
 
-    # ── Setup agents ──
-    console.print("\n[bold cyan]建立 Agent 團隊[/bold cyan]")
+    # Setup agents
+    console.print("\n[bold cyan]Building the agent team[/bold cyan]")
     rules = Constitution.default()
 
     analyst = BaseAgent(
@@ -197,12 +197,12 @@ def main():
         constitution=rules,
     )
 
-    console.print("  [cyan]analyst[/cyan] — 評估決策可行性")
-    console.print("  [red]critic[/red]  — 挑戰假設、找盲點")
-    console.print("  [magenta]judge[/magenta]   — 公正裁決")
+    console.print("  [cyan]analyst[/cyan] - frames the case for the decision")
+    console.print("  [red]critic[/red]  - tests assumptions and surfaces downside risk")
+    console.print("  [magenta]judge[/magenta]   - renders an impartial recommendation")
 
-    # ── Step 1: Assessment ──
-    console.print("\n[bold cyan]Step 1: Analyst 評估中...[/bold cyan]")
+    # Step 1: Assessment
+    console.print("\n[bold cyan]Step 1: Analyst is evaluating...[/bold cyan]")
     assessment = analyst.run(
         f"Evaluate this decision on a 0-40 scale across 5 dimensions "
         f"(market_size, timing, moat, execution, revenue). Return JSON with "
@@ -216,35 +216,35 @@ def main():
         confidence = data.get("confidence", 0.75)
         dimensions = data.get("dimensions", {})
 
-        table = Table(title="Analyst 評估", box=box.ROUNDED)
-        table.add_column("維度", style="cyan")
-        table.add_column("分數", style="green", justify="center")
+        table = Table(title="Analyst Assessment", box=box.ROUNDED)
+        table.add_column("Dimension", style="cyan")
+        table.add_column("Score", style="green", justify="center")
         table.add_column("", style="dim")
         for dim, val in dimensions.items():
             bar = "█" * val + "░" * (10 - val)
             table.add_row(dim.replace("_", " ").title(), f"{val}/10", bar)
         console.print(table)
-        console.print(f"\n  [bold]總分：[/bold][yellow]{score}/40[/yellow]  "
-                       f"[bold]信心：[/bold]{confidence:.0%}")
-        console.print(f"  [bold]摘要：[/bold]{summary}")
+        console.print(f"\n  [bold]Total score:[/bold] [yellow]{score}/40[/yellow]  "
+                       f"[bold]Confidence:[/bold] {confidence:.0%}")
+        console.print(f"  [bold]Summary:[/bold] {summary}")
     except (json.JSONDecodeError, TypeError):
         score = 35
         console.print(f"  [dim]{assessment[:300]}[/dim]")
 
-    # ── Step 2: Trigger decision ──
+    # Step 2: Trigger decision
     threshold = Debate.SCORE_THRESHOLD
-    console.print("\n[bold cyan]Step 2: 是否觸發辯論？[/bold cyan]")
+    console.print("\n[bold cyan]Step 2: Should debate trigger?[/bold cyan]")
     console.print(f"  Score {score} {'≥' if score >= threshold else '<'} {threshold} (threshold)")
 
     if score < threshold:
-        console.print("  [green]低風險，不需要辯論。直接通過。[/green]")
+        console.print("  [green]Low risk. No debate needed. Proceeding directly.[/green]")
         return
 
-    console.print("  [yellow]高分 = 高風險決策 → 觸發 Adversarial Debate[/yellow]")
-    console.print("  [dim]（這就是 Agent Constitution 的核心：重大決策自動被挑戰）[/dim]")
+    console.print("  [yellow]High score = material decision worth pressure-testing -> triggering adversarial debate[/yellow]")
+    console.print("  [dim](This is the core idea: major decisions get challenged automatically.)[/dim]")
 
-    # ── Step 3: Debate ──
-    console.print("\n[bold cyan]Step 3: 辯論開始[/bold cyan]")
+    # Step 3: Debate
+    console.print("\n[bold cyan]Step 3: Debate begins[/bold cyan]")
 
     debate = Debate(
         challenger=critic,
@@ -255,7 +255,7 @@ def main():
     result = debate.run(topic=topic, initial_score=score)
     final_score = score + result.score_delta
 
-    # ── Step 4: Record to retrospective ──
+    # Step 4: Record to retrospective
     retro = Retrospective()
     pred = retro.record_prediction(
         agent_role="analyst",
@@ -263,29 +263,29 @@ def main():
         confidence=confidence if 'confidence' in dir() else 0.75,
     )
 
-    # ── Step 5: Summary ──
-    console.print("\n[bold cyan]結果[/bold cyan]")
+    # Step 5: Summary
+    console.print("\n[bold cyan]Results[/bold cyan]")
 
     summary_table = Table(box=box.ROUNDED, show_header=False)
     summary_table.add_column("", style="bold", width=12)
     summary_table.add_column("")
-    summary_table.add_row("決策", topic[:80])
-    summary_table.add_row("初始評分", f"{score}/40")
-    summary_table.add_row("辯論調整", f"{result.score_delta:+d}")
-    summary_table.add_row("最終評分", f"[bold]{final_score}/40[/bold]")
-    summary_table.add_row("判決", result.verdict)
+    summary_table.add_row("Decision", topic[:80])
+    summary_table.add_row("Initial score", f"{score}/40")
+    summary_table.add_row("Debate delta", f"{result.score_delta:+d}")
+    summary_table.add_row("Final score", f"[bold]{final_score}/40[/bold]")
+    summary_table.add_row("Verdict", result.verdict)
     summary_table.add_row("Prediction ID", pred.id[:8] + "...")
     console.print(summary_table)
 
     if not use_mock:
         total_cost = analyst.get_total_cost() + critic.get_total_cost() + judge.get_total_cost()
-        console.print(f"\n  [dim]API 成本：${total_cost:.4f} (4 calls × haiku)[/dim]")
+        console.print(f"\n  [dim]API cost: ${total_cost:.4f} (4 calls x haiku)[/dim]")
 
     console.print(Panel.fit(
-        "[bold]為什麼這很重要？[/bold]\n\n"
-        "沒有 Agent Constitution：agent 說 'score 35, go for it'，你就信了。\n"
-        "有 Agent Constitution：每個高風險決策都會被質疑、辯護、裁決。\n"
-        "全程有審計紀錄，任何人都能回溯「為什麼做了這個決定」。",
+        "[bold]Why this matters[/bold]\n\n"
+        "Without Agent Constitution: a recommendation can move forward with little structured challenge.\n"
+        "With Agent Constitution: high-stakes decisions get challenged, defended, and judged before they become commitments.\n"
+        "The whole process leaves an audit trail, so teams can revisit why the decision was made.",
         border_style="blue",
         padding=(1, 2),
     ))

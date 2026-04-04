@@ -23,30 +23,23 @@ console = Console()
 PERSONAL_RESPONSES = {
     "selfreviewer": (
         "Self-review findings:\n"
-        "1. FAIR — The response correctly tagged verified vs speculative claims.\n"
-        "2. CONCERN — Confidence 0.78 may be too high given we lack data on this "
-        "specific team's Rust experience. Recommend lowering to 0.65.\n"
-        "3. CONCERN — The claim about '80% benefit at 20% cost' is a rough heuristic, "
-        "not a measured estimate. Should be tagged [speculation] more prominently.\n"
-        "4. GOOD — Proactive recall of prior context was relevant and non-intrusive.\n"
+        "1. FAIR — The response correctly separated observed execution issues from forward-looking speculation.\n"
+        "2. CONCERN — Confidence 0.78 may be too high given we do not know how the current managers would absorb the transition load. Recommend lowering to 0.64.\n"
+        "3. CONCERN — The claim that a reorganization would clarify ownership before launch is plausible, but still speculative without evidence from the last two delivery cycles.\n"
+        "4. GOOD — Proactive recall of prior context was relevant and not overstated.\n"
         "Governance compliance: 3/4 checks passed. Score: 82/100"
     ),
     "personal": (
-        "[verified] Rust's ownership model eliminates data races at compile time, "
-        "which removes an entire class of concurrency bugs that plague C/C++ codebases. "
-        "[verified] The 2023 Stack Overflow survey shows Rust as the most admired language "
-        "for the 8th consecutive year. "
-        "[speculation] For a team already proficient in Go, the migration cost may outweigh "
-        "the safety benefits for typical web services — Go's goroutine model is simpler "
-        "and sufficient for most I/O-bound workloads. "
+        "[verified] You said roadmap ownership is currently split across two PMs and launch-readiness reviews have slipped twice in the last quarter. "
+        "[verified] You also said the onboarding rebuild is already on the Q4 critical path. "
+        "[speculation] Reorganizing before launch could improve accountability, but it may also slow execution for 4-6 weeks while reporting lines and rituals reset. "
+        "[speculation] A narrower move, such as assigning a single launch owner without a full reorg, may capture most of the clarity with less disruption. "
         "Confidence: 0.78"
     ),
     "recall": (
-        "Recalling prior context: you mentioned last week that your team's biggest pain "
-        "point is debugging race conditions in the payment service. "
-        "[verified] Rust would directly address that specific problem. "
-        "[speculation] However, rewriting the payment service alone (rather than the "
-        "full stack) might give you 80% of the benefit at 20% of the cost. "
+        "Recalling prior context: last week you said the biggest issue was unclear launch ownership between product, engineering, and customer success. "
+        "[verified] That context supports the case for clearer operating boundaries before the Q4 release. "
+        "[speculation] Instead of a full team reorg, a temporary launch pod with one directly responsible owner may deliver most of the benefit with lower disruption. "
         "Confidence: 0.72"
     ),
     "default": (
@@ -73,8 +66,8 @@ def compute_governance_score(review_text: str) -> int:
 
 def main():
     console.print(Panel.fit(
-        "[bold blue]🧠 Personal Agent Mode[/bold blue]\n"
-        "[dim]Agent Constitution for individuals — No API key required[/dim]",
+        "[bold blue]🧠 Personal Decision Review[/bold blue]\n"
+        "[dim]Decision review for individual operators - No API key required[/dim]",
         border_style="blue"
     ))
 
@@ -103,7 +96,7 @@ def main():
     # --- Step 2: Agent answers a question with epistemic honesty ---
     console.print("\n[bold]Step 2: 📝 Your agent responds...[/bold]")
 
-    question = "Should my team switch from Go to Rust for our backend services?"
+    question = "Should I reorganize the product team before the Q4 launch?"
     console.print(f"  [dim]User:[/dim] {question}\n")
 
     answer = agent.run(question)
@@ -176,7 +169,7 @@ def main():
     score_table.add_column("Check", style="cyan")
     score_table.add_column("Status", style="bold")
     score_table.add_row("Epistemic tags present", "[green]PASS[/green]")
-    score_table.add_row("Confidence calibrated", "[yellow]ADJUSTED[/yellow] (0.78 → 0.65)")
+    score_table.add_row("Confidence calibrated", "[yellow]ADJUSTED[/yellow] (0.78 → 0.64)")
     score_table.add_row("No fabricated claims", "[green]PASS[/green]")
     score_table.add_row("Speculation clearly marked", "[yellow]NEEDS WORK[/yellow]")
     console.print(score_table)
@@ -194,7 +187,7 @@ def main():
         f"Governance Score: [yellow]{score}/100[/yellow] | "
         f"Trace entries: {trace_count} | "
         f"Cost: ${total_cost:.4f}\n\n"
-        f"[bold]Agent Constitution works for teams AND individuals.[/bold]\n"
+        f"[bold]Agent Constitution can also support individual decision review.[/bold]\n"
         f"[dim]No API key used. Run examples/demo_api.py to use real LLMs.[/dim]",
         border_style="green"
     ))

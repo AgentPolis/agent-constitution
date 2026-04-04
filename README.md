@@ -1,7 +1,7 @@
 # Agent Constitution
 
-**Governance harness for decision-making systems that need more than a raw answer.**
-**Works for single-agent and multi-agent workflows. Adds structured review, epistemic honesty, and retrospective calibration.**
+**Governance harness for decision-making systems that need challenge, judgment, and auditability.**
+**Works for single-agent and multi-agent workflows. Adds structured review, epistemic honesty, governance scoring, and retrospective verification primitives.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -34,18 +34,18 @@ Agent Constitution helps these systems do three things that are often handled ad
 
 - encode epistemic rules in markdown instead of inline prompt strings
 - route high-stakes outputs through structured adversarial review
-- track whether past judgments were actually right
+- preserve audit history so important decisions can be revisited later
 
 What this looks like in a product surface:
 
 ```text
 Before governance
 Assistant:
-  Recommendation: Deploy the billing-auth hotfix now.
+  Recommendation: Approve the billing-auth hotfix rollout now.
 
 After Agent Constitution summary gate
 Assistant:
-  Recommendation: Deploy the billing-auth hotfix now.
+  Recommendation: Approve the billing-auth hotfix rollout now.
   Confidence: 82%
 
   Governance check triggered.
@@ -58,14 +58,13 @@ Assistant:
 ```
 BEFORE                                    AFTER Agent Constitution
 ─────────────────────────────────────     ─────────────────────────────────────
-Analyst: "Great opportunity!               Analyst: "Score: 35/40, confidence: 0.7"
-         Score: 42/50"                     Score >= 32 → DEBATE TRIGGERED
-Critic:  "I agree, looks promising."       Critic:  "Market size is [SPECULATION].
-→ Ship it!                                          Competitor has 3x more runway."
-→ 3 months later: competitor raised        Analyst: "Fair — revised to 28/50"
-  $50M, market was 10x smaller             Judge:   "proceed_with_caution, delta: -7"
-                                           30 days later: Retrospective confirms
-                                             challenger was RIGHT. Credibility +0.05
+Planner: "Approve the pricing exception."  Planner: "Approve the pricing exception."
+Confidence: 0.86                           Confidence: 0.86
+Decision ships with no challenge           Governance check triggered
+                                           Critic:  "Margin erosion and precedent risk"
+                                           Defender:"Strategic account, capped term"
+                                           Judge:   "proceed_with_caution, delta: -4"
+                                           Key issue: finance approval path is missing
 ```
 
 > Other frameworks solve *how* components communicate.
@@ -77,6 +76,13 @@ Short answers to the obvious questions:
 - `Do I need premium models everywhere?` No. Use stronger models where arbitration quality matters most, usually the critic and judge.
 - `When does this add value over a single stronger model?` When the decision itself benefits from an explicit review process, not only a higher-quality answer.
 
+What this is and is not:
+
+- `This is not a claim that debate always beats the strongest single model.` The point is to add challenge, arbitration, and auditability where a raw answer is not enough.
+- `This is not for every prompt.` The intended use case is high-stakes or hard-to-reverse decisions such as deploys, auth changes, billing logic, pricing, compliance, and major architecture calls.
+- `This is not fully calibrated governance out of the box.` Today the package records governance history and computes a provisional score from real runs; retrospective verification and credibility adjustment exist as library primitives and are still early-stage operationally.
+- `This is not free in token cost.` Structured review adds extra model calls, so it should be triggered selectively where decision quality and auditability are worth the overhead.
+
 ---
 
 ## Quick Start
@@ -85,7 +91,7 @@ Short answers to the obvious questions:
 
 ```bash
 pip install agent-constitution
-ac debate "Should we build an AI code review tool?"
+ac debate "Should we expand from mid-market to enterprise this year?"
 ```
 
 ```
@@ -99,7 +105,7 @@ Judge:   mock
    critic   | mock
    judge    | mock
 
-2. Analyst evaluates: Should we build an AI code review tool?
+2. Analyst evaluates: Should we expand from mid-market to enterprise this year?
    Score: 35/40
    Confidence: 75%
 
@@ -218,10 +224,10 @@ Quick ways to see it:
 
 ```bash
 # Full CLI path: assessment first, then auto-trigger if threshold is met
-ac debate "Should we build an AI code review tool?"
+ac debate "Should we expand from mid-market to enterprise this year?"
 
 # Standalone mock demo with explicit topic input
-python examples/demo_debate.py --topic "Should we build an AI code review tool?"
+python examples/demo_debate.py --topic "Should we expand from mid-market to enterprise this year?"
 ```
 
 If you want to force a debate programmatically, call `Debate.run(...)` directly after your own scoring step. The library-level trigger check is `Debate.should_trigger(score)`.
@@ -341,7 +347,7 @@ critic   = BaseAgent(role="critic",   goal="Challenge assumptions",  constitutio
 judge    = BaseAgent(role="judge",    goal="Render fair verdicts",   constitution=rules)
 
 debate = Debate(challenger=critic, defender=analyst, judge=judge)
-result = debate.run(topic="Should we build an AI code review tool?")
+result = debate.run(topic="Should we expand from mid-market to enterprise this year?")
 
 result.verdict       # "proceed_with_caution"
 result.score_delta   # -3
@@ -349,8 +355,8 @@ result.challenges    # ["Market is more competitive than assessed", ...]
 result.audit_trail   # Full debate record
 ```
 
-Every LLM response goes through **separate validation** before it's trusted.
-The debate engine uses explicit schema validators (`_validate_challenges`, `_validate_defenses`, `_validate_verdict`) and rejects malformed debate output by default. If you want legacy fallback behavior, opt into `strict_validation=False`.
+Debate-stage LLM responses go through **separate validation** before they're trusted.
+The debate engine uses explicit schema validators (`_validate_challenges`, `_validate_defenses`, `_validate_verdict`) and rejects malformed challenger, defender, and judge output by default. If you want legacy fallback behavior, opt into `strict_validation=False`.
 
 ### 3. Retrospective Calibration
 
@@ -461,7 +467,7 @@ Agent Constitution is not a replacement for orchestration frameworks. It is a go
 |-----------|--------|-----------|---------|----------------------|
 | Agent coordination | Yes | Yes | Yes | Debate-scoped only |
 | Adversarial debate | Not built-in | Not built-in | Via GroupChat | Structured + schema-validated |
-| Retrospective calibration | Not built-in | Not built-in | Not built-in | Yes |
+| Retrospective verification | Not built-in | Not built-in | Not built-in | Library primitives |
 | Human-readable rules (SOUL.md) | Not built-in | Not built-in | Not built-in | Yes |
 | Team governance | Not built-in | Not built-in | Limited | Core focus |
 | Cost tracking | Via LiteLLM | Via callbacks | Via token tracking | Built-in + hooks |
@@ -470,7 +476,7 @@ These frameworks solve *how* agents coordinate. Agent Constitution focuses on a 
 
 ---
 
-## Personal Agent Mode
+## Personal Decision Review
 
 The same governance ideas can wrap a single personal agent too.
 
@@ -573,7 +579,7 @@ constitution/
 
 ### Design Principles
 
-- **Generator/Validator separation**: Every LLM response is generated, then validated by a separate function. The debate engine uses `_validate_challenges()`, `_validate_defenses()`, and `_validate_verdict()` and raises `DebateValidationError` on malformed debate output by default.
+- **Generator/Validator separation**: Debate-stage LLM responses are generated, then validated by a separate function. The debate engine uses `_validate_challenges()`, `_validate_defenses()`, and `_validate_verdict()` and raises `DebateValidationError` on malformed debate output by default.
 - **Constitution as prompt injection**: Rules live in markdown files, not Python strings. `SOUL.md` files are human-readable and version-controllable.
 - **Cost guard with hard limit**: Budget limits are checked before recording each call's cost. When cumulative cost would exceed the hard limit, the guard raises `CostLimitExceeded` and halts further calls.
 

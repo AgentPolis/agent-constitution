@@ -59,7 +59,7 @@ def main():
         constitution=rules,
     )
 
-    topic = "Should we build an AI-powered code review tool for enterprise teams?"
+    topic = "Should we expand from mid-market to enterprise this year?"
     console.print(f"\n[bold]Topic:[/bold] {topic}")
 
     console.print("\n[yellow]Running analyst assessment...[/yellow]")

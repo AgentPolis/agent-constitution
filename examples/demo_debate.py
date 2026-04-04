@@ -22,7 +22,7 @@ from constitution import BaseAgent, Constitution, Debate
 
 console = Console()
 
-DEFAULT_TOPIC = "Should we build an AI-powered code review tool for enterprise teams?"
+DEFAULT_TOPIC = "Should we expand from mid-market to enterprise this year?"
 
 def main():
     parser = argparse.ArgumentParser(description="Agent Constitution Debate Demo")
@@ -80,12 +80,12 @@ def main():
         adapter=MockAdapter(),
         constitution=rules,
     )
-    console.print("  analyst (Nate) -- MockAdapter")
-    console.print("  critic (Eve) -- MockAdapter")
-    console.print("  judge (Solomon) -- MockAdapter")
+    console.print("  analyst -- MockAdapter")
+    console.print("  critic -- MockAdapter")
+    console.print("  judge -- MockAdapter")
 
     # 2. Initial assessment
-    console.print("\n[bold]Step 2: Analyst evaluates opportunity[/bold]")
+    console.print("\n[bold]Step 2: Analyst evaluates the decision[/bold]")
     console.print(f"  [dim]Topic: {topic}[/dim]")
     assessment = analyst.run(f"Evaluate this opportunity: {topic}")
 
@@ -129,15 +129,15 @@ def main():
     # 4. Show debate results
     console.print("\n[bold]Step 4: Debate Results[/bold]")
 
-    console.print("\n  [red]Challenges (Eve):[/red]")
+    console.print("\n  [red]Challenges:[/red]")
     for i, challenge in enumerate(result.challenges, 1):
         console.print(f"    {i}. {challenge}")
 
-    console.print("\n  [green]Defenses (Nate):[/green]")
+    console.print("\n  [green]Defenses:[/green]")
     for i, defense in enumerate(result.defenses, 1):
         console.print(f"    {i}. {defense}")
 
-    console.print(f"\n  [bold]Verdict (Solomon):[/bold] [magenta]{result.verdict}[/magenta]")
+    console.print(f"\n  [bold]Verdict:[/bold] [magenta]{result.verdict}[/magenta]")
     console.print(f"  [bold]Score Delta:[/bold] {result.score_delta:+d}")
     console.print(f"  [bold]Reasoning:[/bold] {result.reasoning[:200]}")
 

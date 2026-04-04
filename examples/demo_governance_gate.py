@@ -26,7 +26,7 @@ class DeploymentPlannerAdapter:
             "action": "deploy",
             "environment": "production",
             "decision_type": "release",
-            "summary": "Deploy billing-auth hotfix to production before the European morning peak.",
+            "summary": "Approve the billing-auth hotfix rollout to production before the European morning peak.",
             "confidence": 0.82,
         }
         return LLMResponse(
@@ -69,7 +69,7 @@ def main() -> None:
         hooks=[gate],
     )
 
-    response = planner.run("Should we deploy the billing-auth hotfix to production now?")
+    response = planner.run("Should we approve the billing-auth hotfix rollout to production now?")
 
     print("Planner output:")
     print(response)

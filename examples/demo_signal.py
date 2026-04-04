@@ -33,7 +33,7 @@ def make_signal(tier, direction, title, source, confidence, hours_ago=0):
 def main():
     console.print(Panel.fit(
         "[bold blue]📡 Agent Constitution[/bold blue]\n"
-        "[dim]Signal Pipeline Demo[/dim]",
+        "[dim]Decision Signal Pipeline Demo[/dim]",
         border_style="blue"
     ))
 
@@ -41,14 +41,14 @@ def main():
     console.print("\n[bold]Step 1: Ingesting signals from multiple sources[/bold]")
 
     signals = [
-        make_signal("tier1", "bullish", "AI infrastructure demand surging", "rss_techcrunch", 0.85),
-        make_signal("tier1", "bullish", "AI infrastructure demand surging", "kol_twitter", 0.78),  # same topic, different source
-        make_signal("tier1", "bullish", "AI infrastructure demand surging", "institutional_gs", 0.91),  # 3rd source
-        make_signal("tier2", "bearish", "Enterprise AI budget cuts Q1", "rss_bloomberg", 0.72),
-        make_signal("tier2", "bearish", "Enterprise AI budget cuts Q1", "kol_twitter", 0.68),  # same topic
-        make_signal("tier1", "neutral", "Model capabilities plateauing debate", "rss_techcrunch", 0.60),
-        make_signal("tier2", "bullish", "New model release imminent", "rss_openai", 0.55),  # low confidence
-        make_signal("tier1", "bullish", "AI infrastructure demand surging", "rss_techcrunch", 0.80, hours_ago=1),  # same source dup
+        make_signal("tier1", "bullish", "Enterprise pilots asking for annual contracts", "crm_notes", 0.85),
+        make_signal("tier1", "bullish", "Enterprise pilots asking for annual contracts", "csm_call_log", 0.78),  # same topic, different source
+        make_signal("tier1", "bullish", "Enterprise pilots asking for annual contracts", "sales_pipeline_review", 0.91),  # 3rd source
+        make_signal("tier2", "bearish", "Security review flagged incomplete audit-log coverage", "security_review", 0.72),
+        make_signal("tier2", "bearish", "Security review flagged incomplete audit-log coverage", "compliance_tracker", 0.68),  # same topic
+        make_signal("tier1", "neutral", "Implementation timelines slipping for enterprise onboarding", "ops_weekly", 0.60),
+        make_signal("tier2", "bullish", "Finance approved budget for customer success expansion", "finance_update", 0.55),  # low confidence
+        make_signal("tier1", "bullish", "Enterprise pilots asking for annual contracts", "crm_notes", 0.80, hours_ago=1),  # same source dup
     ]
 
     pool = SignalPool(dedup_window_hours=24)
@@ -66,13 +66,14 @@ def main():
     xref = pool.cross_reference()
 
     table = Table(title=f"Cross-Referenced Signals ({len(xref)} total)", show_header=True)
-    table.add_column("Direction", style="cyan", width=10)
+    table.add_column("Signal type", style="cyan", width=12)
     table.add_column("Title", style="white", width=45)
     table.add_column("Source", style="dim", width=20)
     table.add_column("Confidence", style="green", width=12)
     for s in xref:
         color = "green" if s.direction == "bullish" else "red" if s.direction == "bearish" else "yellow"
-        table.add_row(f"[{color}]{s.direction}[/{color}]", s.title[:44], s.source, f"{s.confidence:.0%}")
+        label = "supporting" if s.direction == "bullish" else "risk" if s.direction == "bearish" else "mixed"
+        table.add_row(f"[{color}]{label}[/{color}]", s.title[:44], s.source, f"{s.confidence:.0%}")
     console.print(table)
 
     # 3. Actionable signals
@@ -81,12 +82,13 @@ def main():
 
     table2 = Table(title=f"Actionable Signals ({len(actionable)} total, sorted by confidence)", show_header=True)
     table2.add_column("Tier", style="cyan", width=8)
-    table2.add_column("Direction", width=10)
+    table2.add_column("Signal type", width=12)
     table2.add_column("Title", style="white", width=45)
     table2.add_column("Confidence", style="green", width=12)
     for s in actionable:
         color = "green" if s.direction == "bullish" else "red" if s.direction == "bearish" else "yellow"
-        table2.add_row(s.tier, f"[{color}]{s.direction}[/{color}]", s.title[:44], f"{s.confidence:.0%}")
+        label = "supporting" if s.direction == "bullish" else "risk" if s.direction == "bearish" else "mixed"
+        table2.add_row(s.tier, f"[{color}]{label}[/{color}]", s.title[:44], f"{s.confidence:.0%}")
     console.print(table2)
 
     console.print(Panel.fit(

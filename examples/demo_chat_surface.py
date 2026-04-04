@@ -31,7 +31,7 @@ class PlannerAdapter:
                 {
                     "action": "deploy",
                     "environment": "production",
-                    "summary": "Deploy the billing-auth hotfix now.",
+                    "summary": "Approve the billing-auth hotfix rollout now.",
                     "confidence": 0.82,
                 }
             ),
@@ -94,7 +94,7 @@ def render_chat(turn_title: str, prompt: str, reply: str) -> None:
 
 def main() -> None:
     rules = Constitution.default()
-    prompt = "Should we deploy the billing-auth hotfix to production now?"
+    prompt = "Should we approve the billing-auth hotfix rollout to production now?"
 
     plain_planner = BaseAgent(
         role="planner",

@@ -238,6 +238,8 @@ If you only want one public demo to point people at, use `python examples/demo_r
 
 There is also a real self-dogfooding example in [docs/case-studies/readme-launch-review.md](docs/case-studies/readme-launch-review.md), where Agent Constitution reviews its own README before launch.
 
+And a governance-method example in [docs/case-studies/pre-execution-review-vs-post-audit.md](docs/case-studies/pre-execution-review-vs-post-audit.md), which compares pre-execution decision review with post-execution audit as evidence models.
+
 ## Scenario-Aware Scoring
 
 `ac debate` is no longer one generic score template.

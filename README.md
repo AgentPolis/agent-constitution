@@ -68,6 +68,13 @@ Agent Constitution is a good fit when:
 
 Common examples include deploys, pricing exceptions, architecture changes, compliance-sensitive choices, and memory or policy updates that are hard to unwind.
 
+Concrete examples:
+
+- deploy review using a release checklist, rollback runbook, and deploy brief
+- pricing exception review using a finance memo, precedent guardrails, and account context
+- organization change review using an ownership map, launch timeline, and dependency notes
+- launch-readiness review for a README, proposal, or rollout plan framed as a decision
+
 The key practical pattern is simple:
 
 - ask a decision question

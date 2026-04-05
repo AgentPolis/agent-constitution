@@ -815,7 +815,7 @@ class MyAdapter(LLMAdapter):
 | Module | What it does |
 |--------|-------------|
 | `constitution/debate.py` | Adversarial debate engine + schema validators |
-| `constitution/retrospective.py` | Prediction tracking + credibility calibration |
+| `constitution/retrospective.py` | Early library primitive for prediction tracking and credibility adjustment |
 | `constitution/governance_score.py` | 5-dimension governance scoring from recorded runs |
 | `constitution/cost_guard.py` | Token cost accounting with hard-limit enforcement after each call |
 | `constitution/base_agent.py` | BaseAgent with constitution injection |
@@ -858,10 +858,10 @@ constitution/
   base_agent.py              BaseAgent with constitution injection
   constitution.py            Constitution loader (SOUL.md / YAML / default)
   debate.py                  Adversarial debate engine + schema validators
-  signal.py + signal_pool.py Signal dedup, cross-reference, filtering
+  signal.py + signal_pool.py Early signal primitives for dedup and pooling
   cost_guard.py              Token cost accounting and hard-limit enforcement
   trace.py                   RunTrace audit trail
-  retrospective.py           Prediction recording + credibility calibration
+  retrospective.py           Early prediction recording primitive
   governance_score.py        Five-dimension governance scoring
   cli.py                     `ac` CLI
 ```
@@ -903,7 +903,7 @@ These are exploratory directions, not shipped features.
 **Current scope** — Governance harness
 - Constitutional agent governance via `SOUL.md`
 - Adversarial debate engine (challenger/defender/judge)
-- Retrospective calibration with credibility tracking
+- Early retrospective primitives for prediction tracking and credibility adjustment
 - Personal agent mode
 - 4 LLM backends: Mock, Anthropic, Claude CLI, Ollama
 - `ac` CLI + Governance Score

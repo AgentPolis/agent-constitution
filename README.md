@@ -235,6 +235,8 @@ That split is intentional:
 
 If you only want one public demo to point people at, use `python examples/demo_replay.py`.
 
+There is also a real self-dogfooding example in [docs/case-studies/readme-launch-review.md](docs/case-studies/readme-launch-review.md), where Agent Constitution reviews its own README before launch.
+
 ## Scenario-Aware Scoring
 
 `ac debate` is no longer one generic score template.

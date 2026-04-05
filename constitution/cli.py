@@ -12,7 +12,9 @@ Usage:
 """
 import argparse
 import json
+import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -22,6 +24,7 @@ from rich.table import Table
 console = Console()
 WORKSPACE_DIR = Path("workspace")
 GOVERNANCE_HISTORY_PATH = WORKSPACE_DIR / "governance_history.json"
+DEBATES_DIR = WORKSPACE_DIR / "debates"
 ADAPTER_CHOICES = ("mock", "anthropic", "ollama", "claude")
 
 
@@ -45,9 +48,160 @@ def _append_governance_history(record: dict) -> None:
     )
 
 
-def _parse_json_object(raw: str) -> dict | None:
+def _slugify_topic(topic: str, *, limit: int = 48) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", topic.lower()).strip("-")
+    slug = slug[:limit].strip("-")
+    return slug or "debate"
+
+
+def _read_context_files(paths: list[str] | None, *, max_chars_per_file: int = 6000) -> tuple[list[dict], list[str]]:
+    loaded: list[dict] = []
+    errors: list[str] = []
+    for raw_path in paths or []:
+        path = Path(raw_path)
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"{path}: {exc}")
+            continue
+        truncated = False
+        if len(content) > max_chars_per_file:
+            content = content[:max_chars_per_file]
+            truncated = True
+        loaded.append({"path": str(path), "content": content, "truncated": truncated})
+    return loaded, errors
+
+
+def _build_supporting_context(context_files: list[dict]) -> str:
+    if not context_files:
+        return ""
+    sections = ["Supporting context:"]
+    for item in context_files:
+        header = f"[File: {item['path']}]"
+        if item.get("truncated"):
+            header += " (truncated)"
+        sections.extend(["", header, item["content"]])
+    return "\n".join(sections)
+
+
+def _write_debate_artifact(
+    *,
+    topic: str,
+    score: int,
+    assessment: str,
+    result,
+    context_files: list[dict] | None = None,
+) -> Path:
+    from constitution.debate import SCORE_MAX, clamp_score, delta_severity, score_band
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    artifact_path = DEBATES_DIR / f"{timestamp}-{_slugify_topic(topic)}.md"
+    DEBATES_DIR.mkdir(parents=True, exist_ok=True)
+
+    assessment_data = _parse_json_object(assessment) or {}
+    summary = assessment_data.get("summary", "")
+    confidence = assessment_data.get("confidence")
+    scenario = assessment_data.get("scenario", "unknown")
+    dimensions = assessment_data.get("dimensions", {})
+
+    lines = [
+        f"# Debate Record: {topic}",
+        "",
+        f"- Generated: {timestamp}",
+        f"- Scenario: {scenario}",
+        f"- Initial score: {score}/{SCORE_MAX} ({score_band(score).title()})",
+    ]
+
+    if isinstance(confidence, (int, float)):
+        lines.append(f"- Confidence: {float(confidence):.0%}")
+    lines.extend(["", "## Context", ""])
+    if context_files:
+        for item in context_files:
+            suffix = " (truncated)" if item.get("truncated") else ""
+            lines.append(f"- {item['path']}{suffix}")
+    else:
+        lines.append("- No supporting context files were supplied. Treat this as a first-pass judgment.")
+    lines.append("")
+    lines.append("## Analyst Assessment")
+    if summary:
+        lines.extend(["", summary])
+    if dimensions:
+        lines.extend(["", "### Dimensions", ""])
+        for dim, value in dimensions.items():
+            lines.append(f"- {dim}: {value}/20")
+
+    if result is None:
+        lines.extend(["", "## Debate Trigger", "", "- Debate not triggered"])
+    else:
+        final_score = clamp_score(score + result.score_delta)
+        lines.extend(
+            [
+                "",
+                "## Debate Result",
+                "",
+                f"- Verdict: {result.verdict}",
+                f"- Score delta: {result.score_delta:+d}",
+                f"- Delta severity: {delta_severity(result.score_delta)}",
+                f"- Final score: {final_score}/{SCORE_MAX} ({score_band(final_score).title()})",
+                "",
+                "### Reasoning",
+                "",
+                result.reasoning,
+                "",
+                "### Missing Context",
+                "",
+            ]
+        )
+        for missing in result.missing_context:
+            lines.append(f"- {missing}")
+        lines.extend(
+            [
+                "",
+                "### Next Actions",
+                "",
+            ]
+        )
+        for action in result.next_actions:
+            lines.append(f"- {action}")
+        lines.extend(
+            [
+                "",
+                "### Upgrade Condition",
+                "",
+                result.upgrade_condition,
+                "",
+                "### Downgrade Condition",
+                "",
+                result.downgrade_condition,
+                "",
+                "### Challenges",
+                "",
+            ]
+        )
+        for challenge in result.challenges:
+            lines.append(f"- {challenge}")
+        lines.extend(["", "### Defenses", ""])
+        for defense in result.defenses:
+            lines.append(f"- {defense}")
+
+    artifact_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return artifact_path
+
+
+def _strip_code_fence(raw: str | None) -> str | None:
+    """Strip markdown code fences (```json ... ```) from LLM responses."""
+    if not isinstance(raw, str):
+        return None
+    match = re.search(r"```(?:json)?\s*\n?(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+    return match.group(1).strip() if match else raw
+
+
+def _parse_json_object(raw: str | None) -> dict | None:
+    stripped = _strip_code_fence(raw)
+    if not isinstance(stripped, str):
+        return None
     try:
-        data = json.loads(raw)
+        data = json.loads(stripped)
     except (json.JSONDecodeError, TypeError):
         return None
     return data if isinstance(data, dict) else None
@@ -86,6 +240,28 @@ def _analyst_response_is_valid(raw: str) -> bool:
     )
 
 
+def _parse_analyst_assessment(raw: str) -> dict:
+    data = _parse_json_object(raw)
+    if data is None:
+        raise ValueError("Analyst must return a JSON object.")
+    if not isinstance(data.get("score"), (int, float)):
+        raise ValueError("Analyst response must include numeric `score`.")
+    if not isinstance(data.get("summary"), str):
+        raise ValueError("Analyst response must include string `summary`.")
+    if not isinstance(data.get("dimensions"), dict):
+        raise ValueError("Analyst response must include object `dimensions`.")
+    if not _has_calibrated_confidence(raw):
+        raise ValueError("Analyst response must include calibrated `confidence` between 0 and 1.")
+    return data
+
+
+def _find_audit_entry_content(audit_trail: list[dict], role: str) -> str | None:
+    for entry in audit_trail:
+        if entry.get("role") == role and isinstance(entry.get("content"), str):
+            return entry["content"]
+    return None
+
+
 def _build_governance_record(
     *,
     topic: str,
@@ -107,7 +283,7 @@ def _build_governance_record(
     raw_responses = [assessment]
     constitutional_checks = [1.0 if _analyst_response_is_valid(assessment) else 0.0]
     audit_checks = [1.0 if len(analyst.get_trace().entries) >= 1 else 0.0]
-    debate_checks = [1.0 if debate_triggered else 1.0]
+    debate_checks = [1.0 if debate_triggered else 0.0]
 
     calibration_accuracy = None
     challenges_count = 0
@@ -136,9 +312,25 @@ def _build_governance_record(
                 "defenses_count": defenses_count,
             }
 
-        challenger_raw = result.audit_trail[0]["content"]
-        defender_raw = result.audit_trail[1]["content"]
-        judge_raw = result.audit_trail[2]["content"]
+        challenger_raw = _find_audit_entry_content(result.audit_trail, "challenger")
+        defender_raw = _find_audit_entry_content(result.audit_trail, "defender")
+        judge_raw = _find_audit_entry_content(result.audit_trail, "judge")
+
+        if not all((challenger_raw, defender_raw, judge_raw)):
+            return {
+                "topic": topic,
+                "score": score,
+                "debate_triggered": debate_triggered,
+                "epistemic_honesty": _epistemic_honesty_score(raw_responses),
+                "constitutional_compliance": sum(constitutional_checks) / len(constitutional_checks),
+                "debate_rigor": 0.0,
+                "calibration_accuracy": calibration_accuracy,
+                "audit_completeness": 0.0,
+                "responses_analyzed": len(raw_responses),
+                "audit_trail_entries": audit_trail_entries,
+                "challenges_count": challenges_count,
+                "defenses_count": defenses_count,
+            }
 
         try:
             _validate_challenges(challenger_raw)
@@ -172,9 +364,11 @@ def _build_governance_record(
         ]
 
         audit_checks.extend([
-            1.0 if audit_trail_entries == 3 else 0.0,
+            1.0 if audit_trail_entries >= 3 else 0.0,
             1.0 if len(critic.get_trace().entries) >= 1 and len(judge.get_trace().entries) >= 1 else 0.0,
-            1.0 if {entry.get("role") for entry in result.audit_trail} == {"challenger", "defender", "judge"} else 0.0,
+            1.0 if {"challenger", "defender", "judge"}.issubset(
+                {entry.get("role") for entry in result.audit_trail}
+            ) else 0.0,
         ])
 
     return {
@@ -240,6 +434,8 @@ def _format_adapter_label(adapter_name: str, model_name: str | None) -> str:
 def cmd_debate(args: argparse.Namespace) -> None:
     """Run a structured adversarial debate on the given topic."""
     from constitution import BaseAgent, Constitution, Debate, DebateValidationError
+    from constitution.debate import SCORE_MAX, clamp_score, delta_severity, score_band
+    from constitution.scenarios import build_analyst_prompt
 
     analyst_adapter_name, analyst_model = _resolve_role_config(args, "analyst")
     critic_adapter_name, critic_model = _resolve_role_config(args, "critic")
@@ -290,30 +486,55 @@ def cmd_debate(args: argparse.Namespace) -> None:
     # --- initial assessment ---
     topic = args.topic
     console.print(f"\n[bold]2. Analyst evaluates:[/bold] {topic}")
+    context_files, context_errors = _read_context_files(args.context_file)
+    for error in context_errors:
+        console.print(f"[yellow]Context file warning:[/yellow] {error}")
+    if context_files:
+        console.print("   [bold]Context files:[/bold]")
+        for item in context_files:
+            suffix = " (truncated)" if item.get("truncated") else ""
+            console.print(f"     - {item['path']}{suffix}")
+    else:
+        console.print(
+            "   [yellow]No supporting context files supplied.[/yellow] "
+            "Treat this as a first-pass judgment, not a final approval."
+        )
+    supporting_context = _build_supporting_context(context_files)
 
-    assessment = analyst.run(f"Evaluate this opportunity: {topic}")
+    analyst_prompt = build_analyst_prompt(topic)
+    if supporting_context:
+        analyst_prompt = f"{analyst_prompt}\n\n{supporting_context}"
+    assessment = analyst.run(analyst_prompt)
 
     try:
-        data = json.loads(assessment)
-        score = data.get("score", 35)
-        summary = data.get("summary", assessment[:120])
-        confidence = data.get("confidence", 0.75)
+        data = _parse_analyst_assessment(assessment)
+    except ValueError as exc:
+        console.print(
+            Panel.fit(
+                f"[bold red]Assessment rejected[/bold red]\n[dim]{exc}[/dim]",
+                border_style="red",
+            )
+        )
+        sys.exit(2)
 
-        dims = data.get("dimensions", {})
-        if dims:
-            table = Table(title="Assessment Scores", show_header=True)
-            table.add_column("Dimension", style="cyan")
-            table.add_column("Score", style="green")
-            for dim, val in dims.items():
-                table.add_row(dim.replace("_", " ").title(), f"{val}/10")
-            console.print(table)
+    score = int(data["score"])
+    summary = data["summary"]
+    confidence = data["confidence"]
+    dims = data.get("dimensions", {})
+    if dims:
+        table = Table(title="Assessment Scores", show_header=True)
+        table.add_column("Dimension", style="cyan")
+        table.add_column("Score", style="green")
+        for dim, val in dims.items():
+            table.add_row(dim.replace("_", " ").title(), f"{val}/20")
+        console.print(table)
 
-        console.print(f"   [bold]Score:[/bold] [yellow]{score}/40[/yellow]")
-        console.print(f"   [bold]Summary:[/bold] {summary}")
-        console.print(f"   [bold]Confidence:[/bold] {confidence:.0%}")
-    except (json.JSONDecodeError, TypeError):
-        score = 35
-        console.print(f"   {assessment[:200]}")
+    console.print(
+        f"   [bold]Score:[/bold] [yellow]{score}/{SCORE_MAX}[/yellow] "
+        f"({score_band(score).title()})"
+    )
+    console.print(f"   [bold]Summary:[/bold] {summary}")
+    console.print(f"   [bold]Confidence:[/bold] {confidence:.0%}")
 
     # --- debate ---
     debate = Debate(challenger=critic, defender=analyst, judge=judge)
@@ -332,11 +553,20 @@ def cmd_debate(args: argparse.Namespace) -> None:
                 judge=judge,
             )
         )
+        artifact_path = _write_debate_artifact(
+            topic=topic,
+            score=score,
+            assessment=assessment,
+            result=None,
+            context_files=context_files,
+        )
+        console.print(f"[dim]Saved debate record: {artifact_path}[/dim]")
         return
 
     console.print(f"\n[bold]3. Score {score} >= {debate.SCORE_THRESHOLD} — debate triggered[/bold]")
     try:
-        result = debate.run(topic=topic, initial_score=score)
+        debate_topic = topic if not supporting_context else f"{topic}\n\n{supporting_context}"
+        result = debate.run(topic=debate_topic, initial_score=score)
     except DebateValidationError as exc:
         console.print(
             Panel.fit(
@@ -359,10 +589,26 @@ def cmd_debate(args: argparse.Namespace) -> None:
 
     console.print(f"\n   [bold]Verdict:[/bold]  [magenta]{result.verdict}[/magenta]")
     console.print(f"   [bold]Delta:[/bold]    {result.score_delta:+d}")
+    console.print(f"   [bold]Severity:[/bold] {delta_severity(result.score_delta).title()}")
     console.print(f"   [bold]Reason:[/bold]   {result.reasoning[:200]}")
+    if result.missing_context:
+        console.print("   [bold]Missing Context:[/bold]")
+        for item in result.missing_context:
+            console.print(f"     - {item}")
+    if result.next_actions:
+        console.print("   [bold]Next Actions:[/bold]")
+        for action in result.next_actions:
+            console.print(f"     - {action}")
+    if result.upgrade_condition:
+        console.print(f"   [bold]Upgrade:[/bold]  {result.upgrade_condition}")
+    if result.downgrade_condition:
+        console.print(f"   [bold]Downgrade:[/bold] {result.downgrade_condition}")
 
-    final_score = score + result.score_delta
-    console.print(f"\n   [bold]Final Score:[/bold] [yellow]{score}[/yellow] -> [green]{final_score}/40[/green]")
+    final_score = clamp_score(score + result.score_delta)
+    console.print(
+        f"\n   [bold]Final Score:[/bold] [yellow]{score}[/yellow] -> "
+        f"[green]{final_score}/{SCORE_MAX}[/green] ({score_band(final_score).title()})"
+    )
 
     # --- audit ---
     console.print(f"\n[bold]5. Audit trail[/bold] ({len(result.audit_trail)} steps)")
@@ -383,11 +629,19 @@ def cmd_debate(args: argparse.Namespace) -> None:
             judge=judge,
         )
     )
+    artifact_path = _write_debate_artifact(
+        topic=topic,
+        score=score,
+        assessment=assessment,
+        result=result,
+        context_files=context_files,
+    )
+    console.print(f"[dim]Saved debate record: {artifact_path}[/dim]")
 
     console.print(Panel.fit(
         f"[bold green]Done[/bold green]  "
         f"verdict=[magenta]{result.verdict}[/magenta]  "
-        f"score=[yellow]{final_score}/40[/yellow]",
+        f"score=[yellow]{final_score}/{SCORE_MAX}[/yellow]",
         border_style="green",
     ))
 
@@ -469,15 +723,21 @@ def build_parser() -> argparse.ArgumentParser:
     # --- debate ---
     debate_parser = subparsers.add_parser(
         "debate",
-        help="Assess a topic, then trigger debate automatically if score >= 32/40",
+        help="Assess a topic, then trigger debate automatically if score >= 70/100",
         description=(
-            "Run an analyst assessment first. If the initial score is 32/40 or higher, "
+            "Run an analyst assessment first. If the initial score is 70/100 or higher, "
             "Agent Constitution automatically triggers the challenger / defender / judge round."
         ),
     )
     debate_parser.add_argument(
         "topic",
         help="The topic or question to assess; structured debate runs only if the score crosses threshold",
+    )
+    debate_parser.add_argument(
+        "--context-file",
+        action="append",
+        default=[],
+        help="Attach a background file or decision document. Repeat for multiple files.",
     )
     debate_parser.add_argument(
         "--adapter",

@@ -1,14 +1,14 @@
 # Agent Constitution
 
-**Governance harness for decision-making systems that need challenge, judgment, and auditability.**
-**Works for single-agent and multi-agent workflows. Adds structured review, epistemic honesty, governance scoring, and retrospective verification primitives.**
+**Governance harness for decisions that should be judged against real documents, not just a one-line prompt.**
+**Works with single-agent and multi-agent workflows. Adds document-aware review, structured challenge, auditability, and governance scoring.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 ```mermaid
 flowchart LR
-    A["🔍 Analyst<br/>scores idea<br/><b>35/40</b>"] -->|"score ≥ 32"| B["⚔️ Critic<br/>3 challenges"]
+    A["🔍 Analyst<br/>scores idea<br/><b>72/100</b>"] -->|"score ≥ 70"| B["⚔️ Critic<br/>3 challenges"]
     B --> C["🛡️ Defender<br/>3 rebuttals"]
     C --> D["⚖️ Judge<br/>verdict + delta"]
     D --> E["📊 Governance<br/>Score 7.8/10"]
@@ -24,17 +24,55 @@ flowchart LR
 
 Agent Constitution is a governance layer you can place around an existing assistant, planner, reviewer, or agent pipeline.
 
-It is not only for multi-agent systems. You can use it to harden:
+It is meant for moments where the main problem is not producing an answer, but deciding whether that answer should drive action.
 
-- a single assistant that needs challenge and review before acting
+The important part is that the judgment can be grounded in attached documents.
+
+Release checklists, rollback runbooks, deploy briefs, pricing memos, ownership maps, and similar files are not treated as decoration. They are treated as evidence that should change the recommendation.
+
+That usually shows up in questions like:
+
+- should we ship this change now
+- is this recommendation strong enough to act on
+- what should we do first
+- what risks are still unresolved
+- when should confidence be treated as provisional
+
+The idea behind the project is straightforward:
+
+AI systems are getting better at generating output, but judgment is still where a lot of value lives.
+
+If a decision matters, it often helps to make the review process more explicit. Agent Constitution does that by helping systems:
+
+- encode epistemic rules in markdown instead of burying them in prompt strings
+- treat attached documents as evidence instead of ignoring them after retrieval
+- route high-stakes outputs through structured challenge and judgment
+- preserve audit history so important decisions can be revisited later
+
+This is not only for multi-agent systems. You can use it to harden:
+
+- a single assistant that needs review before acting
 - a planner or deploy bot that should trigger governance only on high-stakes outputs
 - a multi-agent workflow that needs explicit arbitration instead of free-form consensus
 
-Agent Constitution helps these systems do three things that are often handled ad hoc:
+In practice, the goal is simple: make important AI decisions easier to challenge, easier to inspect, and easier to revisit later.
 
-- encode epistemic rules in markdown instead of inline prompt strings
-- route high-stakes outputs through structured adversarial review
-- preserve audit history so important decisions can be revisited later
+## When It Helps
+
+Agent Constitution is a good fit when:
+
+- a recommendation may lead to a real action, not just a draft
+- confidence should be challenged before a decision is accepted
+- you want a visible review step instead of implicit trust in one answer
+- audit history matters because the decision may need to be revisited later
+
+Common examples include deploys, pricing exceptions, architecture changes, compliance-sensitive choices, and memory or policy updates that are hard to unwind.
+
+The key practical pattern is simple:
+
+- ask a decision question
+- attach the files a reviewer would actually want
+- let the system say what the current judgment is and what evidence is still missing
 
 What this looks like in a product surface:
 
@@ -47,12 +85,21 @@ After Agent Constitution summary gate
 Assistant:
   Recommendation: Approve the billing-auth hotfix rollout now.
   Confidence: 82%
+  Assessment: 72/100 (Promising)
+  Adjusted score: 51/100 (Caution)
 
   Governance check triggered.
   Verdict: Proceed With Caution
-  Score delta: -3
+  Score delta: -21
+  Delta severity: Major Concern
   Why: Several concerns remain unresolved before the next gate.
-  Top concern: Rollback plan is still untested.
+  Top concern: Canary monitoring is still missing a billing-transaction-specific abort gate.
+```
+
+That example is based on a recorded live-model run, not a fabricated mock transcript. If you want to replay it locally without an API key, run:
+
+```bash
+python examples/demo_replay.py
 ```
 
 ```
@@ -63,60 +110,270 @@ Confidence: 0.86                           Confidence: 0.86
 Decision ships with no challenge           Governance check triggered
                                            Critic:  "Margin erosion and precedent risk"
                                            Defender:"Strategic account, capped term"
-                                           Judge:   "proceed_with_caution, delta: -4"
+                                           Judge:   "proceed_with_caution, delta: -21"
                                            Key issue: finance approval path is missing
 ```
 
-> Other frameworks solve *how* components communicate.
-> Agent Constitution focuses on *how decisions get challenged, judged, and audited*.
+> Other frameworks usually focus on how components communicate.
+> Agent Constitution focuses on how important decisions get challenged, judged, and audited.
 
-Short answers to the obvious questions:
+## What Is Adjacent — And What Is Different
 
-- `Can I use this with a single agent?` Yes. A single assistant can still be wrapped with trigger rules, challenger/judge review, and audit history.
-- `Do I need premium models everywhere?` No. Use stronger models where arbitration quality matters most, usually the critic and judge.
-- `When does this add value over a single stronger model?` When the decision itself benefits from an explicit review process, not only a higher-quality answer.
+Agent Constitution sits near several existing categories, but it is trying to solve a slightly different problem:
 
-What this is and is not:
+- **Agent orchestration frameworks** solve how agents, tools, and workflows run together
+- **Prompt / role systems** shape behavior through instructions, personas, and local rules
+- **Guardrail / evaluation systems** check whether outputs violate rules or meet quality bars
+- **Debate / self-critique methods** improve reasoning by adding challenge or adversarial review
 
-- `This is not a claim that debate always beats the strongest single model.` The point is to add challenge, arbitration, and auditability where a raw answer is not enough.
-- `This is not for every prompt.` The intended use case is high-stakes or hard-to-reverse decisions such as deploys, auth changes, billing logic, pricing, compliance, and major architecture calls.
-- `This is not fully calibrated governance out of the box.` Today the package records governance history and computes a provisional score from real runs; retrospective verification and credibility adjustment exist as library primitives and are still early-stage operationally.
-- `This is not free in token cost.` Structured review adds extra model calls, so it should be triggered selectively where decision quality and auditability are worth the overhead.
+Agent Constitution borrows from all of these, but its center of gravity is different.
 
----
+It treats **high-stakes decisions as governed events**.
+
+So the primary unit is not just:
+
+- a message
+- a prompt
+- a workflow step
+- or a final output
+
+The primary unit is a **decision that may need challenge, arbitration, and audit history**.
+
+That is the main distinction. The goal is not simply:
+
+- better generation
+- better collaboration
+- better filtering
+
+The goal is to create a more explicit process for producing better judgment when the decision matters.
+
+That difference also matters when people compare "agent governance" projects:
+
+| | Microsoft Agent Governance Toolkit | Agent Constitution |
+|---|---|---|
+| Focus | Runtime security and policy enforcement | Decision quality and judgment quality |
+| When it runs | Around agent actions and tool execution | Around high-stakes recommendations and decisions |
+| Core question | `Should this action be allowed?` | `Is this recommendation sound enough to act on?` |
+| Mechanism | Policy engine, runtime interception, permission checks | Structured review, challenger/defender/judge flow, audit trail |
+| Cost profile | Always-on runtime enforcement | Selective extra model calls when a decision merits challenge |
+
+They are complementary, not substitutes.
 
 ## Quick Start
 
-**One command. Zero config. No API key.**
+There are three good ways to try the project, depending on what you want to verify.
+
+**1. Fastest public demo from a repo clone**
 
 ```bash
-pip install agent-constitution
-ac debate "Should we expand from mid-market to enterprise this year?"
+git clone https://github.com/AgentPolis/agent-constitution.git
+cd agent-constitution
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+python examples/demo_replay.py
 ```
 
+This replays a recorded live-model deploy review with real supporting files, so it shows the intended product surface without requiring an API key.
+
+**2. Best zero-key proof that attached documents change the judgment**
+
+```bash
+ac debate "Should we deploy the billing-auth hotfix to production tonight?" \
+  --context-file examples/context/deploy/release-checklist.md \
+  --context-file examples/context/deploy/rollback-runbook.md \
+  --context-file examples/context/deploy/deploy-brief.md
 ```
-Agent Constitution  |  Adversarial Debate
-Analyst: mock
-Critic:  mock
-Judge:   mock
 
-1. Agents initialized
-   analyst  | mock
-   critic   | mock
-   judge    | mock
+Expected shape of the result:
 
-2. Analyst evaluates: Should we expand from mid-market to enterprise this year?
-   Score: 35/40
-   Confidence: 75%
+```text
+2. Analyst evaluates: Should we deploy the billing-auth hotfix to production tonight?
+   Context files:
+     - examples/context/deploy/release-checklist.md
+     - examples/context/deploy/rollback-runbook.md
+     - examples/context/deploy/deploy-brief.md
+   Score: 79/100 (Promising)
 
-3. Score 35 >= 32 — debate triggered
-   Challenges: 3 raised
-   Defenses:   3 filed
-   Verdict:    proceed_with_caution
-   Delta:      -3
-   Final:      35 -> 32
+3. Score 79 >= 70 — debate triggered
+   Verdict: proceed
+   Delta:   +8
+   Final:   79 -> 87
+```
 
-4. Audit trail (3 steps)
+**3. Package smoke test after install**
+
+```bash
+python3.11 -m pip install agent-constitution
+ac debate "Should we deploy the billing-auth hotfix to production tonight?"
+```
+
+`agent-constitution` requires Python 3.11+.
+
+That path is still useful, but without attached files it should be read as a first-pass judgment rather than a fully grounded deploy decision.
+
+## Public Demo vs Internal Mock
+
+For public-facing demos, this repo now prefers a recorded live-model replay over a generic mock transcript.
+
+- `python examples/demo_replay.py` replays a real deploy review captured from a live Claude run.
+- `ac debate "..." --context-file ...` with no API key uses the mock adapter, but still lets you verify that attached files change the recommendation.
+- `ac debate "..."` with no files is still a useful smoke test for CI and local installation.
+- `ac debate "..." --adapter anthropic|claude|ollama` runs the real judgment path.
+
+That split is intentional:
+
+- the replay demo shows what a real model can surface when it actually reads context files
+- the mock path is still useful for deterministic testing, trigger checks, and hook validation
+
+If you only want one public demo to point people at, use `python examples/demo_replay.py`.
+
+## Scenario-Aware Scoring
+
+`ac debate` is no longer one generic score template.
+
+The initial analyst pass now changes rubric based on the decision type:
+
+- `deploy`: `impact / readiness / rollback / blast_radius / evidence`
+- `pricing`: `upside / precedent_risk / reversibility / evidence / strategic_fit`
+- `org_design`: `clarity / disruption / timing / reversibility / execution_risk`
+- `generic`: `impact / readiness / risk / evidence / reversibility`
+
+Current score bands:
+
+- `0-34`: Weak
+- `35-49`: Borderline
+- `50-69`: Caution
+- `70-84`: Promising
+- `85-100`: Strong
+
+Current judge deltas are discrete:
+
+- `+8`: strengthens case
+- `0`: no material change
+- `-13`: notable concern
+- `-21`: major concern
+- `-34`: stop-ship concern
+
+That makes the output easier to read as a decision, not just a score.
+
+## What Users Can Actually Do Today
+
+The package is meant to be runnable, not just demoed.
+
+For anything real, do not ask it to judge a one-line prompt in a vacuum.
+
+The practical pattern is:
+
+1. ask a decision question
+2. attach background or supporting documents
+3. let the system tell you what is still missing before you act
+
+If you do not provide context, the output should be treated as a first-pass judgment, not final approval.
+
+## How To Ask
+
+You do not have to type `ac debate` in a product surface if the host already wires Agent Constitution in.
+
+But the request still needs to be explicit enough that the system can identify:
+
+- the decision being reviewed
+- the downside if it is wrong
+- the background or files that should be considered
+
+These are good natural-language requests:
+
+- `Use Agent Constitution to judge whether the billing-auth hotfix should go to production tonight.`
+- `Run a challenger / defender / judge review on whether this README is ready for public launch.`
+- `Assess this pricing exception, and tell me what context is missing before we approve it.`
+- `Do a deploy decision review for this hotfix. Background is in the release checklist, rollback runbook, and deploy brief.`
+
+These are weak requests:
+
+- `Can we ship this?`
+- `What do you think?`
+- `Is this okay?`
+- `Can you look at that thing from earlier?`
+
+Weak requests can still be answered, but they should not be treated as fully grounded governance judgments.
+
+You can install it and try these directly:
+
+```bash
+ac debate "Should we deploy the billing-auth hotfix to production tonight?"
+ac debate "Should we approve this pricing exception for a strategic enterprise account?"
+ac debate "Should we reorganize product and engineering into vertical pods before the Q4 launch?"
+ac debate "Should we publish this README as-is for public launch?"
+```
+
+And for a real decision, attach the files a reviewer would actually want:
+
+```bash
+ac debate "Should we deploy the billing-auth hotfix to production tonight?" \
+  --context-file examples/context/deploy/release-checklist.md \
+  --context-file examples/context/deploy/rollback-runbook.md \
+  --context-file examples/context/deploy/deploy-brief.md
+```
+
+There are sample deploy context files in:
+
+```text
+examples/context/deploy/
+```
+
+The last example is important: you can use Agent Constitution to review a README, launch plan, or proposal as long as you frame it as a decision.
+
+What the package returns today:
+
+- an initial analyst score with scenario-aware dimensions
+- a trigger decision based on score threshold
+- judgments that change when you attach materially different supporting files
+- challenger / defender / judge outputs when debate triggers
+- a concrete next-step package: `missing_context`, `next_actions`, `upgrade_condition`, `downgrade_condition`
+- an audit trail that can be recorded and revisited later
+- a per-run markdown debate record under `workspace/debates/`
+
+By default, those `workspace/` artifacts are created relative to the current working directory where you run `ac`.
+
+What the mock path is good for:
+
+- verifying trigger behavior
+- validating product surfaces
+- testing hooks and audit flows
+- checking whether scenario rubrics feel sensible
+- proving that attached documents affect the result instead of being ignored
+
+What it is not yet:
+
+- a claim of full calibration across all decision types
+- proof that any real model backend will match mock behavior out of the box
+- a replacement for domain-specific evidence gathering
+
+In other words, it can tell you:
+
+- what the current recommendation is
+- what context is missing
+- what evidence would upgrade the decision
+- what evidence would downgrade it
+
+That is the key boundary: without background and files, it can still give you a first-pass judgment, but it should not pretend the decision is fully grounded.
+
+It cannot honestly tell you:
+
+- that a deploy is safe if you never gave it the deployment prep material
+- that a pricing exception is acceptable if finance context was never attached
+- that a reorg is wise if the launch timeline and ownership map are missing
+
+If you want fixed prompts and a repeatable smoke test:
+
+- golden prompts: [docs/golden-examples.md](docs/golden-examples.md)
+- decision packet template: [docs/decision-packet-template.md](docs/decision-packet-template.md)
+- distribution check: `python scripts/check_scenario_distribution.py`
+
+Each `ac debate ...` run also writes a human-readable debate record like:
+
+```text
+workspace/debates/20260405T113600Z-should-we-deploy-the-billing-auth-hotfix.md
 ```
 
 **Use real LLMs:**
@@ -139,10 +396,40 @@ ac debate "topic" --adapter claude --model sonnet --critic-model opus --judge-mo
 
 **What you get right away:**
 
-- a zero-config debate demo with no API key
+- a zero-config replay demo based on a captured live-model run
+- a zero-config debate smoke test with no API key
 - strict schema validation for challenger, defender, and judge output
 - a provisional governance score computed from recorded runs
 - support for Mock, Anthropic, Ollama, and Claude CLI backends
+
+Short answers to the obvious questions:
+
+- `Can I use this with a single agent?` Yes. A single assistant can still be wrapped with trigger rules, challenger/judge review, and audit history.
+- `Do I need premium models everywhere?` No. Use stronger models where arbitration quality matters most, usually the critic and judge.
+- `When does this add value over a single stronger model?` When the decision itself benefits from an explicit review process, not only a higher-quality answer.
+
+What this is and is not:
+
+- `This is not a claim that debate always beats the strongest single model.` The point is to add challenge, arbitration, and auditability where a raw answer is not enough.
+- `This is not for every prompt.` The intended use case is high-stakes or hard-to-reverse decisions such as deploys, auth changes, billing logic, pricing, compliance, and major architecture calls.
+- `This is not fully calibrated governance out of the box.` Today the package records governance history and computes a provisional score from real runs; retrospective verification and credibility adjustment exist as library primitives and are still early-stage operationally.
+- `This is not free in token cost.` Structured review adds extra model calls, so it should be triggered selectively where decision quality and auditability are worth the overhead.
+
+## Developer Setup
+
+If you are working from a local clone instead of the published package:
+
+```bash
+git clone https://github.com/AgentPolis/agent-constitution.git
+cd agent-constitution
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+python -m pytest --tb=short -v
+```
+
+`tests/conftest.py` also makes local imports work when pytest is launched from the
+parent workspace, but editable install remains the recommended development path.
 
 ## Model Strategy
 
@@ -157,7 +444,7 @@ Current role-model behavior:
 
 - CLI path: `ac debate ... --adapter ... --model ...` still gives you a fast shared default, but now also supports `--analyst-*`, `--critic-*`, and `--judge-*` overrides
 - Library path: you can give each `BaseAgent(...)` its **own adapter and model**, so heterogeneous debate is also supported programmatically
-- Product choice today: same-model debates remain the easy path; mixed-model debates are now a first-class advanced option
+- Product choice today: same-model debates remain the easy path; mixed-model debates are also supported when you want a stronger critic or judge
 
 Example: heterogeneous role setup
 
@@ -199,13 +486,13 @@ ac debate "Should we ship this pricing change?" \
   --judge-model opus
 ```
 
-Three practical lenses:
+Three practical rules of thumb:
 
 - Developer: start with one shared model to simplify ops, then split judge / critic onto stronger models when accuracy matters more than cost
 - Product manager: if the debate outcome changes user-visible recommendations, budget for a stronger judge before you budget for a fancier analyst
 - Agent designer: the critic and judge usually benefit most from stronger reasoning; the analyst can often be cheaper if its output is challengeable and schema-validated
 
-One caution: a stronger model does not replace good role design. If the personas, constitutions, and trigger policy are weak, using Opus everywhere mostly makes expensive bad process.
+One caution: a stronger model does not replace good role design. If the personas, constitutions, and trigger policy are weak, using Opus everywhere mostly makes the process more expensive, not more reliable.
 
 ## How Debate Triggers
 
@@ -215,10 +502,10 @@ It runs in two stages:
 1. the analyst produces an initial scored assessment
 2. the debate engine checks whether that score crosses the trigger threshold
 
-By default, structured debate triggers only when the initial analyst score is **32/40 or higher**.
+By default, structured debate triggers only when the initial analyst score is **70/100 or higher**.
 
-- If score `>= 32`, the critic, defender, and judge run
-- If score `< 32`, the CLI exits after the initial assessment and records that debate was not triggered
+- If score `>= 70`, the critic, defender, and judge run
+- If score `< 70`, the CLI exits after the initial assessment and records that debate was not triggered
 
 Quick ways to see it:
 
@@ -234,7 +521,7 @@ If you want to force a debate programmatically, call `Debate.run(...)` directly 
 
 ## Integration Patterns
 
-The most practical way to use Agent Constitution is usually as a **library gate inside an existing agent pipeline**, not only as a standalone CLI.
+In practice, Agent Constitution is often most useful as a **library gate inside an existing agent pipeline**, not only as a standalone CLI.
 
 Common trigger patterns:
 
@@ -287,6 +574,8 @@ if gate.last_result is not None:
 
 Use your own rules to decide when a debate is mandatory, or let the built-in policy gate infer common high-stakes signals from planner output. This is the path that best fits external systems such as PM planners, deploy bots, PR reviewers, or memory pipelines that are not "Agent Constitution agents" themselves.
 
+`GovernanceGateHook` is deliberately a review layer over planner output and recommendation text. It is not a runtime permission system or an execution sandbox.
+
 Auto-trigger opportunities usually show up around:
 
 - production deploys
@@ -305,7 +594,7 @@ User-facing render modes:
 
 For chat products, pair `render_mode="summary"` with `GovernanceGateHook.chat_response_formatter("summary")` so the user sees a polished assistant reply instead of raw JSON enrichment.
 
-If you want the most guided end-user experience, start with `python examples/demo_interactive.py --mock`, then try `python examples/demo_governance_gate.py`, `python examples/demo_user_experience.py`, and `python examples/demo_chat_surface.py` to see what users would actually see in each render mode and in a chat-style before/after view.
+If you want the most guided end-user experience, start with `python examples/demo_interactive.py --mock`, then try `python examples/demo_governance_gate.py`, `python examples/demo_user_experience.py`, and `python examples/demo_chat_surface.py` to see what each render mode looks like in practice.
 
 ---
 
@@ -334,7 +623,7 @@ Rules live in version-controlled markdown instead of inline strings. Edit a mark
 
 ### 2. Adversarial Debate
 
-Controversial assessments (score >= 32/40) trigger structured debates.
+High-scoring assessments (score >= 70/100) trigger structured debates so strong recommendations are challenged before action.
 A challenger raises three specific challenges. The defender rebuts each.
 A judge renders a verdict with a score delta and full audit trail.
 
@@ -350,7 +639,7 @@ debate = Debate(challenger=critic, defender=analyst, judge=judge)
 result = debate.run(topic="Should we expand from mid-market to enterprise this year?")
 
 result.verdict       # "proceed_with_caution"
-result.score_delta   # -3
+result.score_delta   # -21
 result.challenges    # ["Market is more competitive than assessed", ...]
 result.audit_trail   # Full debate record
 ```
@@ -528,7 +817,7 @@ class MyAdapter(LLMAdapter):
 | `constitution/debate.py` | Adversarial debate engine + schema validators |
 | `constitution/retrospective.py` | Prediction tracking + credibility calibration |
 | `constitution/governance_score.py` | 5-dimension governance scoring from recorded runs |
-| `constitution/cost_guard.py` | Token budget enforcement with hard limits |
+| `constitution/cost_guard.py` | Token cost accounting with hard-limit enforcement after each call |
 | `constitution/base_agent.py` | BaseAgent with constitution injection |
 | `constitution/hooks.py` | AgentHook + DebateHook lifecycle system |
 | `constitution/cli.py` | `ac` CLI entry point (`ac debate`, `ac score`) |
@@ -545,7 +834,7 @@ class MyAdapter(LLMAdapter):
 | [Rich](https://github.com/Textualize/rich) | CLI formatting and tables |
 | PyYAML | Constitution / SOUL.md loading |
 | httpx | HTTP client for Ollama and API adapters |
-| pytest | 206 tests, zero API keys required |
+| pytest | 215 tests, zero API keys required |
 | ruff | Linting and formatting |
 
 ---
@@ -570,7 +859,7 @@ constitution/
   constitution.py            Constitution loader (SOUL.md / YAML / default)
   debate.py                  Adversarial debate engine + schema validators
   signal.py + signal_pool.py Signal dedup, cross-reference, filtering
-  cost_guard.py              Token budget monitoring (pre-check, not post-record)
+  cost_guard.py              Token cost accounting and hard-limit enforcement
   trace.py                   RunTrace audit trail
   retrospective.py           Prediction recording + credibility calibration
   governance_score.py        Five-dimension governance scoring
@@ -581,7 +870,7 @@ constitution/
 
 - **Generator/Validator separation**: Debate-stage LLM responses are generated, then validated by a separate function. The debate engine uses `_validate_challenges()`, `_validate_defenses()`, and `_validate_verdict()` and raises `DebateValidationError` on malformed debate output by default.
 - **Constitution as prompt injection**: Rules live in markdown files, not Python strings. `SOUL.md` files are human-readable and version-controllable.
-- **Cost guard with hard limit**: Budget limits are checked before recording each call's cost. When cumulative cost would exceed the hard limit, the guard raises `CostLimitExceeded` and halts further calls.
+- **Cost guard with hard limit**: Cost is accounted for after each completed call. If cumulative cost would cross the hard limit, the guard raises `CostLimitExceeded` immediately after that call unless a hook explicitly allows the over-limit result.
 
 ---
 

@@ -10,15 +10,16 @@ cd agent-constitution
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+python -m pytest --tb=short -v
 ```
 
 ## Development Workflow
 
 1. Fork the repo and create a branch from `main`
 2. Make your changes
-3. Run tests: `pytest --tb=short -v`
+3. Run tests: `python -m pytest --tb=short -v`
 4. Run linter: `ruff check . --exclude .venv`
-5. Optionally verify packaging: `python -m build`
+5. Optionally verify packaging in a clean env: `python -m pip install build && python -m build`
 6. Open a PR
 
 ## Code Style
@@ -33,7 +34,7 @@ pip install -e ".[dev]"
 - **Generator/Validator separation**: LLM output is generated, then validated by a separate function. Never trust raw LLM output.
 - **Strict-by-default debate validation**: malformed challenger, defender, or judge output should fail closed unless a caller explicitly opts into fallback mode.
 - **Constitution as markdown**: Rules live in `.md` files, not Python strings.
-- **Cost guard pre-check**: Budget limits checked before recording, not after.
+- **Cost guard accounting**: Cost is accounted for after each completed call, and over-limit results raise unless a hook explicitly allows them.
 
 ## What We Need Help With
 
@@ -48,10 +49,10 @@ pip install -e ".[dev]"
 All tests must pass with `MockAdapter` and zero API keys:
 
 ```bash
-pytest --tb=short -v
+python -m pytest --tb=short -v
 ```
 
-206 tests currently. Please add tests for any new functionality.
+215 tests currently. Please add tests for any new functionality.
 
 ## Pull Request Guidelines
 

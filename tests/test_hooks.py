@@ -149,7 +149,7 @@ class TestGovernanceGateHook:
         gate = GovernanceGateHook(challenger=critic, defender=defender, judge=judge)
         agent = BaseAgent(role="analyst", goal="Evaluate", constitution=rules, hooks=[gate])
 
-        response = agent.run("Should we launch this?")
+        response = agent.run("Should we approve this pricing exception for a strategic enterprise account?")
 
         assert isinstance(response, str)
         assert gate.last_score is not None
@@ -240,7 +240,7 @@ class TestGovernanceGateHook:
             keyword_pool={"deploy", "production"},
         )
         policy = DecisionPolicy(
-            min_score=32,
+            min_score=70,
             action_types={"deploy"},
             environments={"production"},
             match_mode="all",
@@ -370,21 +370,26 @@ class TestGovernanceGateHook:
         formatter = GovernanceGateHook.chat_response_formatter("summary")
         result = DebateResult(
             verdict="proceed_with_caution",
-            score_delta=-3,
+            score_delta=-21,
             reasoning="Several concerns remain unresolved.",
+            missing_context=["Deployment checklist was not supplied."],
             challenges=["Rollback plan is still untested."],
             defenses=["Rollback automation exists behind a feature flag."],
         )
         rendered = formatter(
-            '{"summary":"Deploy the billing-auth hotfix now.","action":"deploy","environment":"production","confidence":0.82}',
+            '{"summary":"Deploy the billing-auth hotfix now.","action":"deploy","environment":"production","score":78,"confidence":0.82}',
             result,
         )
 
         assert "Recommendation: Deploy the billing-auth hotfix now." in rendered
         assert "Environment: production" in rendered
         assert "Confidence: 82%" in rendered
+        assert "Assessment:" in rendered
+        assert "Adjusted score:" in rendered
         assert "Verdict: Proceed With Caution" in rendered
+        assert "Delta severity: Major Concern" in rendered
         assert "Top concern: Rollback plan is still untested." in rendered
+        assert "Missing context:" in rendered
 
 
 # ---------------------------------------------------------------------------

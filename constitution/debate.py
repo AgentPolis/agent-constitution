@@ -5,16 +5,62 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+import re
+
 from .base_agent import BaseAgent
 from .hooks import CompositeDebateHook, DebateHook
+
+
+def _strip_code_fence(raw: str) -> str:
+    """Strip markdown code fences (```json ... ```) from LLM responses."""
+    match = re.search(r"```(?:json)?\s*\n?(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+    return match.group(1).strip() if match else raw
 
 logger = logging.getLogger(__name__)
 
 VALID_VERDICTS = {"proceed", "reject", "proceed_with_caution", "reconsider"}
+SCORE_MAX = 100
+DIMENSION_MAX = 20
+SCORE_THRESHOLD = 70
+DEFAULT_INITIAL_SCORE = 78
+ALLOWED_SCORE_DELTAS = (-34, -21, -13, 0, 8)
 
 
 class DebateValidationError(ValueError):
     """Raised when LLM output fails schema validation."""
+
+
+def clamp_score(score: int) -> int:
+    return max(0, min(SCORE_MAX, int(score)))
+
+
+def score_band(score: int) -> str:
+    score = clamp_score(score)
+    if score >= 85:
+        return "strong"
+    if score >= 70:
+        return "promising"
+    if score >= 50:
+        return "caution"
+    if score >= 35:
+        return "borderline"
+    return "weak"
+
+
+def normalize_score_delta(score_delta: int) -> int:
+    return min(ALLOWED_SCORE_DELTAS, key=lambda allowed: (abs(allowed - score_delta), abs(allowed)))
+
+
+def delta_severity(score_delta: int) -> str:
+    normalized = normalize_score_delta(score_delta)
+    labels = {
+        8: "strengthens case",
+        0: "no material change",
+        -13: "notable concern",
+        -21: "major concern",
+        -34: "stop-ship concern",
+    }
+    return labels[normalized]
 
 
 def _ensure_string_list(values: list[str], *, label: str) -> list[str]:
@@ -34,13 +80,30 @@ def _validate_result_object(result: DebateResult) -> DebateResult:
         raise DebateValidationError("score_delta must remain an int")
     if not isinstance(result.reasoning, str):
         raise DebateValidationError("reasoning must remain a string")
+    if not isinstance(result.missing_context, list) or not all(
+        isinstance(item, str) for item in result.missing_context
+    ):
+        raise DebateValidationError("missing_context must remain list[str]")
+    if not isinstance(result.next_actions, list) or not all(
+        isinstance(item, str) for item in result.next_actions
+    ):
+        raise DebateValidationError("next_actions must remain list[str]")
+    if len(result.next_actions) == 0:
+        raise DebateValidationError("next_actions cannot be empty")
+    if len(result.next_actions) > 3:
+        raise DebateValidationError("next_actions must have at most 3 items")
+    if not isinstance(result.upgrade_condition, str):
+        raise DebateValidationError("upgrade_condition must remain a string")
+    if not isinstance(result.downgrade_condition, str):
+        raise DebateValidationError("downgrade_condition must remain a string")
     original_delta = result.score_delta
-    result.score_delta = max(-10, min(5, result.score_delta))
+    result.score_delta = normalize_score_delta(result.score_delta)
     if result.score_delta != original_delta:
         logger.warning(
-            "score_delta clamped from %d to %d (valid range: -10 to 5)",
+            "score_delta normalized from %d to %d (allowed values: %s)",
             original_delta,
             result.score_delta,
+            ALLOWED_SCORE_DELTAS,
         )
     result.challenges = _ensure_string_list(result.challenges, label="challenges")
     result.defenses = _ensure_string_list(result.defenses, label="defenses")
@@ -73,6 +136,10 @@ class DebateResult:
     verdict: str                    # "proceed", "reject", "proceed_with_caution", "reconsider"
     score_delta: int                # Positive or negative adjustment
     reasoning: str
+    missing_context: list[str] = field(default_factory=list)
+    next_actions: list[str] = field(default_factory=list)
+    upgrade_condition: str = ""
+    downgrade_condition: str = ""
     challenges: list[str] = field(default_factory=list)
     defenses: list[str] = field(default_factory=list)
     audit_trail: list[dict] = field(default_factory=list)
@@ -85,7 +152,7 @@ class DebateResult:
 def _validate_challenges(raw: str) -> list[str]:
     """Validate challenger output: must be JSON with 'challenges' list of strings."""
     try:
-        data = json.loads(raw)
+        data = json.loads(_strip_code_fence(raw))
     except (json.JSONDecodeError, TypeError) as exc:
         raise DebateValidationError(f"Challenger returned invalid JSON: {exc}") from exc
     challenges = data.get("challenges")
@@ -101,7 +168,7 @@ def _validate_challenges(raw: str) -> list[str]:
 def _validate_defenses(raw: str) -> list[str]:
     """Validate defender output: must be JSON with 'defenses' list of strings."""
     try:
-        data = json.loads(raw)
+        data = json.loads(_strip_code_fence(raw))
     except (json.JSONDecodeError, TypeError) as exc:
         raise DebateValidationError(f"Defender returned invalid JSON: {exc}") from exc
     defenses = data.get("defenses")
@@ -112,10 +179,10 @@ def _validate_defenses(raw: str) -> list[str]:
     return defenses
 
 
-def _validate_verdict(raw: str) -> tuple[str, int, str]:
+def _validate_verdict(raw: str) -> tuple[str, int, str, list[str], list[str], str, str]:
     """Validate judge output: must be JSON with verdict, score_delta, reasoning."""
     try:
-        data = json.loads(raw)
+        data = json.loads(_strip_code_fence(raw))
     except (json.JSONDecodeError, TypeError) as exc:
         raise DebateValidationError(f"Judge returned invalid JSON: {exc}") from exc
     verdict = data.get("verdict")
@@ -126,15 +193,38 @@ def _validate_verdict(raw: str) -> tuple[str, int, str]:
     score_delta = data.get("score_delta")
     if not isinstance(score_delta, (int, float)):
         raise DebateValidationError(f"score_delta must be numeric, got: {type(score_delta)}")
-    score_delta = max(-10, min(5, int(score_delta)))
+    score_delta = normalize_score_delta(int(score_delta))
     reasoning = data.get("reasoning", "")
     if not isinstance(reasoning, str):
         raise DebateValidationError(f"reasoning must be string, got: {type(reasoning)}")
-    return verdict, score_delta, reasoning
+    if "missing_context" in data:
+        missing_context = data.get("missing_context")
+    else:
+        missing_context = ["Supporting background or operating evidence is still missing."]
+    if not isinstance(missing_context, list) or not all(isinstance(item, str) for item in missing_context):
+        raise DebateValidationError("missing_context must be list[str]")
+    next_actions = data.get("next_actions") or ["Gather the highest-value missing evidence before acting."]
+    if not isinstance(next_actions, list) or not all(isinstance(item, str) for item in next_actions):
+        raise DebateValidationError("next_actions must be list[str]")
+    if len(next_actions) == 0:
+        raise DebateValidationError("next_actions cannot be empty")
+    if len(next_actions) > 3:
+        next_actions = next_actions[:3]
+    upgrade_condition = data.get("upgrade_condition") or (
+        "Add specific evidence that resolves the highest-severity concern."
+    )
+    if not isinstance(upgrade_condition, str):
+        raise DebateValidationError("upgrade_condition must be string")
+    downgrade_condition = data.get("downgrade_condition") or (
+        "Any new evidence that increases downside or weakens reversibility should lower confidence."
+    )
+    if not isinstance(downgrade_condition, str):
+        raise DebateValidationError("downgrade_condition must be string")
+    return verdict, score_delta, reasoning, missing_context, next_actions, upgrade_condition, downgrade_condition
 
 
 class Debate:
-    SCORE_THRESHOLD = 32            # Trigger debate when score >= this
+    SCORE_THRESHOLD = SCORE_THRESHOLD
 
     def __init__(
         self,
@@ -154,7 +244,7 @@ class Debate:
     def should_trigger(self, score: int) -> bool:
         return score >= self.SCORE_THRESHOLD
 
-    def run(self, topic: str, initial_score: int = 35) -> DebateResult:
+    def run(self, topic: str, initial_score: int = DEFAULT_INITIAL_SCORE) -> DebateResult:
         """
         Run a structured adversarial debate.
         1. Challenger generates challenges → validator checks schema
@@ -256,32 +346,40 @@ Provide a defense for each challenge. Format as JSON:
 
         # --- Step 3: Generate + Validate verdict ---
         judge_prompt = f"""Topic: {topic}
-Initial score: {initial_score}/40
+Initial score: {initial_score}/{SCORE_MAX}
 
 Challenges: {challenges}
 Defenses: {defenses}
 
 Evaluate the debate and return verdict. Format as JSON:
-{{"verdict": "proceed|reject|proceed_with_caution|reconsider", "score_delta": -10 to +5, "reasoning": "...", "confidence": 0.0-1.0}}"""
+{{"verdict": "proceed|reject|proceed_with_caution|reconsider", "score_delta": one of {list(ALLOWED_SCORE_DELTAS)}, "reasoning": "...", "missing_context": ["...", "..."], "next_actions": ["...", "..."], "upgrade_condition": "...", "downgrade_condition": "...", "confidence": 0.0-1.0}}"""
 
         judge_response = self.judge.run(judge_prompt)
         audit_trail.append({"role": "judge", "content": judge_response})
 
         try:
-            verdict, score_delta, reasoning = _validate_verdict(judge_response)
+            verdict, score_delta, reasoning, missing_context, next_actions, upgrade_condition, downgrade_condition = _validate_verdict(judge_response)
         except DebateValidationError as exc:
             logger.warning("Judge validation failed: %s", exc)
             action = self._hook.on_validation_error("verdict", exc)
             if action == "raise" and self.strict_validation:
                 raise
             verdict = "proceed_with_caution"
-            score_delta = -3
+            score_delta = -13
             reasoning = judge_response
+            missing_context = ["Supporting background or operating evidence is still missing."]
+            next_actions = ["Gather the highest-value missing evidence before acting."]
+            upgrade_condition = "Resolve the top concern with concrete evidence."
+            downgrade_condition = "Any new evidence that increases risk should lower readiness."
 
         result = DebateResult(
             verdict=verdict,
             score_delta=score_delta,
             reasoning=reasoning,
+            missing_context=missing_context,
+            next_actions=next_actions,
+            upgrade_condition=upgrade_condition,
+            downgrade_condition=downgrade_condition,
             challenges=challenges,
             defenses=defenses,
             audit_trail=audit_trail,
@@ -292,6 +390,10 @@ Evaluate the debate and return verdict. Format as JSON:
             verdict=result.verdict,
             score_delta=result.score_delta,
             reasoning=result.reasoning,
+            missing_context=list(result.missing_context),
+            next_actions=list(result.next_actions),
+            upgrade_condition=result.upgrade_condition,
+            downgrade_condition=result.downgrade_condition,
             challenges=list(result.challenges),
             defenses=list(result.defenses),
             audit_trail=list(result.audit_trail),
@@ -310,6 +412,10 @@ Evaluate the debate and return verdict. Format as JSON:
                 "verdict": validated_result.verdict,
                 "score_delta": validated_result.score_delta,
                 "reasoning": validated_result.reasoning,
+                "missing_context": validated_result.missing_context,
+                "next_actions": validated_result.next_actions,
+                "upgrade_condition": validated_result.upgrade_condition,
+                "downgrade_condition": validated_result.downgrade_condition,
                 "challenges": validated_result.challenges,
                 "defenses": validated_result.defenses,
             },
@@ -317,6 +423,10 @@ Evaluate the debate and return verdict. Format as JSON:
                 "verdict": result.verdict,
                 "score_delta": result.score_delta,
                 "reasoning": result.reasoning,
+                "missing_context": result.missing_context,
+                "next_actions": result.next_actions,
+                "upgrade_condition": result.upgrade_condition,
+                "downgrade_condition": result.downgrade_condition,
                 "challenges": result.challenges,
                 "defenses": result.defenses,
             },

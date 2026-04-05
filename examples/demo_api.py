@@ -22,6 +22,8 @@ from rich.panel import Panel  # noqa: E402
 
 from adapters import AnthropicAPIAdapter  # noqa: E402
 from constitution import BaseAgent, Constitution, Debate, DebateValidationError  # noqa: E402
+from constitution.debate import clamp_score, delta_severity  # noqa: E402
+from constitution.scenarios import build_analyst_prompt  # noqa: E402
 
 console = Console()
 
@@ -63,25 +65,21 @@ def main():
     console.print(f"\n[bold]Topic:[/bold] {topic}")
 
     console.print("\n[yellow]Running analyst assessment...[/yellow]")
-    assessment = analyst.run(
-        f"Evaluate this opportunity on a 0-40 scale across 5 dimensions "
-        f"(market_size, timing, moat, execution, revenue). Return JSON with "
-        f"score, dimensions dict, summary, confidence (0-1). Topic: {topic}"
-    )
+    assessment = analyst.run(build_analyst_prompt(topic))
     console.print(f"[dim]Analyst response:[/dim] {assessment[:300]}")
 
     import json
     try:
         data = json.loads(assessment)
-        score = data.get("score", 35)
+        score = data.get("score", 78)
     except (json.JSONDecodeError, TypeError):
-        score = 35
+        score = 78
 
-    console.print(f"\n[bold]Score:[/bold] {score}/40")
+    console.print(f"\n[bold]Score:[/bold] {score}/100")
 
     debate = Debate(challenger=critic, defender=analyst, judge=judge)
     if debate.should_trigger(score):
-        console.print(f"\n[yellow]⚔️  Score {score} ≥ 32 → Triggering debate...[/yellow]")
+        console.print(f"\n[yellow]⚔️  Score {score} ≥ 70 → Triggering debate...[/yellow]")
         try:
             result = debate.run(topic=topic, initial_score=score)
         except DebateValidationError as exc:
@@ -90,12 +88,13 @@ def main():
 
         console.print(f"\n[bold]Verdict:[/bold] [magenta]{result.verdict}[/magenta]")
         console.print(f"[bold]Score Delta:[/bold] {result.score_delta:+d}")
-        console.print(f"[bold]Final Score:[/bold] {score + result.score_delta}/40")
+        console.print(f"[bold]Delta Severity:[/bold] {delta_severity(result.score_delta).title()}")
+        console.print(f"[bold]Final Score:[/bold] {clamp_score(score + result.score_delta)}/100")
 
         total_cost = analyst.get_total_cost() + critic.get_total_cost() + judge.get_total_cost()
         console.print(f"\n[dim]Total API cost: ${total_cost:.4f}[/dim]")
     else:
-        console.print(f"\n[dim]Score {score} < 32, debate not triggered.[/dim]")
+        console.print(f"\n[dim]Score {score} < 70, debate not triggered.[/dim]")
 
     console.print(Panel.fit("[bold green]✓ API Demo Complete[/bold green]", border_style="green"))
 

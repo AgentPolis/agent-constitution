@@ -3,6 +3,7 @@ Tests for the LLM adapter abstraction layer.
 All execution tests use MockAdapter only (no API key required).
 """
 
+import json
 
 from adapters import AnthropicAPIAdapter, ClaudeCLIAdapter, LLMAdapter, LLMResponse, MockAdapter
 
@@ -133,7 +134,11 @@ class TestMockAdapter:
             self._make_messages("judge the debate"),
             system_prompt="Act as judge and deliver a verdict.",
         )
-        assert "verdict" in resp.content
+        data = json.loads(resp.content)
+        assert "verdict" in data
+        assert "next_actions" in data
+        assert "upgrade_condition" in data
+        assert "downgrade_condition" in data
 
     def test_unknown_role_returns_default(self):
         adapter = MockAdapter(simulate_delay_ms=0)
@@ -182,3 +187,67 @@ class TestMockAdapter:
         # debate-aware mock: analyst as defender, critic as challenger
         assert "defenses" in resp1.content or "score" in resp1.content
         assert "challenges" in resp2.content
+
+    def test_analyst_scoring_is_scenario_aware_for_deploy(self):
+        adapter = MockAdapter(simulate_delay_ms=0)
+        resp = adapter.call(
+            self._make_messages("Should we deploy the billing-auth hotfix to production tonight?"),
+            system_prompt="You are an analyst agent.",
+        )
+        data = json.loads(resp.content)
+        assert data["scenario"] == "deploy"
+        assert set(data["dimensions"].keys()) == {
+            "impact", "readiness", "rollback", "blast_radius", "evidence"
+        }
+
+    def test_analyst_scoring_is_scenario_aware_for_pricing(self):
+        adapter = MockAdapter(simulate_delay_ms=0)
+        resp = adapter.call(
+            self._make_messages("Should we approve this pricing exception for a strategic enterprise account?"),
+            system_prompt="You are an analyst agent.",
+        )
+        data = json.loads(resp.content)
+        assert data["scenario"] == "pricing"
+        assert set(data["dimensions"].keys()) == {
+            "upside", "precedent_risk", "reversibility", "evidence", "strategic_fit"
+        }
+
+    def test_judge_missing_context_shrinks_when_deploy_packet_is_present(self):
+        adapter = MockAdapter(simulate_delay_ms=0)
+        prompt = (
+            "Topic: Should we deploy the billing-auth hotfix to production tonight?\n"
+            "Initial score: 79/100\n\n"
+            "Supporting context:\n"
+            "[File: release-checklist.md]\nrelease checklist reviewed by on-call owner\ncanary rollout enabled for the first 10 percent of traffic\nmonitoring dashboards pinned before deployment\n"
+            "[File: rollback-runbook.md]\nrollback runbook exists\nlast staging rollback drill completed successfully\nabort threshold: error rate above 2 percent for 5 minutes\n"
+            "[File: deploy-brief.md]\ndelay cost: estimated 12000 USD of affected revenue per hour\naffected users: roughly 1800 sign-in attempts per hour\ntransactions: about 950 billing-related transactions per hour could be impacted\nrevenue exposure: approximately 42000 USD\nprevious hotfix history: 5 comparable auth hotfixes in the last year, 4 successful, 1 rollback\n\n"
+            "Challenges: ['a','b','c']\nDefenses: ['x','y','z']\n\n"
+            "Evaluate the debate and return verdict. Format as JSON:"
+        )
+        resp = adapter.call(
+            self._make_messages(prompt),
+            system_prompt="Act as judge and deliver a verdict.",
+        )
+        data = json.loads(resp.content)
+        assert data["missing_context"] == []
+        assert data["verdict"] == "proceed"
+        assert data["score_delta"] == 8
+
+    def test_deploy_challenges_respect_context_evidence(self):
+        adapter = MockAdapter(simulate_delay_ms=0)
+        prompt = (
+            "Topic: Should we deploy the billing-auth hotfix to production tonight?\n"
+            "Supporting context:\n"
+            "[File: release-checklist.md]\nrelease checklist reviewed by on-call owner\ncanary rollout enabled for the first 10 percent of traffic\nmonitoring dashboards pinned before deployment\n"
+            "[File: rollback-runbook.md]\nrollback runbook exists\nlast staging rollback drill completed successfully\nabort threshold: error rate above 2 percent for 5 minutes\n"
+            "[File: deploy-brief.md]\ndelay cost: estimated 12000 USD of affected revenue per hour\naffected users: roughly 1800 sign-in attempts per hour\ntransactions: about 950 billing-related transactions per hour could be impacted\nrevenue exposure: approximately 42000 USD\nprevious hotfix history: 5 comparable auth hotfixes in the last year, 4 successful, 1 rollback\n"
+            "Generate exactly 3 specific challenges to this assessment. Format as JSON:"
+        )
+        resp = adapter.call(
+            self._make_messages(prompt),
+            system_prompt="You are a critic who challenges claims.",
+        )
+        data = json.loads(resp.content)
+        joined = " ".join(data["challenges"]).lower()
+        assert "has not been rehearsed" not in joined
+        assert "not yet explicit enough" not in joined

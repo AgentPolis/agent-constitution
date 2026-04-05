@@ -19,6 +19,8 @@ from rich.table import Table
 
 from adapters import MockAdapter
 from constitution import BaseAgent, Constitution, Debate
+from constitution.debate import SCORE_MAX, clamp_score, delta_severity, score_band
+from constitution.scenarios import build_analyst_prompt
 
 console = Console()
 
@@ -87,11 +89,11 @@ def main():
     # 2. Initial assessment
     console.print("\n[bold]Step 2: Analyst evaluates the decision[/bold]")
     console.print(f"  [dim]Topic: {topic}[/dim]")
-    assessment = analyst.run(f"Evaluate this opportunity: {topic}")
+    assessment = analyst.run(build_analyst_prompt(topic))
 
     try:
         data = json.loads(assessment)
-        score = data.get("score", 35)
+        score = data.get("score", 78)
         summary = data.get("summary", assessment[:100])
         confidence = data.get("confidence", 0.75)
 
@@ -99,14 +101,17 @@ def main():
         table.add_column("Dimension", style="cyan")
         table.add_column("Score", style="green")
         for dim, val in data.get("dimensions", {}).items():
-            table.add_row(dim.replace("_", " ").title(), f"{val}/10")
+            table.add_row(dim.replace("_", " ").title(), f"{val}/20")
         console.print(table)
 
-        console.print(f"\n  [bold]Total Score:[/bold] [yellow]{score}/40[/yellow]")
+        console.print(
+            f"\n  [bold]Total Score:[/bold] [yellow]{score}/{SCORE_MAX}[/yellow] "
+            f"({score_band(score).title()})"
+        )
         console.print(f"  [bold]Summary:[/bold] {summary}")
         console.print(f"  [bold]Confidence:[/bold] {confidence:.0%}")
     except (json.JSONDecodeError, TypeError):
-        score = 35
+        score = 78
         console.print(f"  Assessment: {assessment[:200]}")
 
     debate = Debate(challenger=critic, defender=analyst, judge=judge)
@@ -115,7 +120,7 @@ def main():
     # 3. Trigger debate
     console.print(
         f"\n[bold]Step 3: Debate trigger check[/bold]\n"
-        f"  [dim]Rule: trigger structured debate only if score ≥ {threshold}/40[/dim]"
+        f"  [dim]Rule: trigger structured debate only if score ≥ {threshold}/{SCORE_MAX}[/dim]"
     )
 
     if not debate.should_trigger(score):
@@ -139,10 +144,14 @@ def main():
 
     console.print(f"\n  [bold]Verdict:[/bold] [magenta]{result.verdict}[/magenta]")
     console.print(f"  [bold]Score Delta:[/bold] {result.score_delta:+d}")
+    console.print(f"  [bold]Delta Severity:[/bold] {delta_severity(result.score_delta).title()}")
     console.print(f"  [bold]Reasoning:[/bold] {result.reasoning[:200]}")
 
-    final_score = score + result.score_delta
-    console.print(f"\n  [bold]Final Score:[/bold] [yellow]{score}[/yellow] → [green]{final_score}[/green]")
+    final_score = clamp_score(score + result.score_delta)
+    console.print(
+        f"\n  [bold]Final Score:[/bold] [yellow]{score}[/yellow] → "
+        f"[green]{final_score}/{SCORE_MAX}[/green] ({score_band(final_score).title()})"
+    )
 
     # 5. Audit trail
     console.print("\n[bold]Step 5: Debate Audit Trail[/bold]")
@@ -159,7 +168,7 @@ def main():
     console.print(Panel.fit(
         f"[bold green]✓ Demo Complete[/bold green]\n"
         f"Debate verdict: [magenta]{result.verdict}[/magenta] | "
-        f"Final score: [yellow]{final_score}/40[/yellow]\n"
+        f"Final score: [yellow]{final_score}/{SCORE_MAX}[/yellow]\n"
         f"[dim]No API key used. Run examples/demo_api.py to use real LLMs.[/dim]",
         border_style="green"
     ))

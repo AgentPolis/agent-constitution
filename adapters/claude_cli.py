@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import time
 
@@ -55,6 +56,13 @@ class ClaudeCLIAdapter(LLMAdapter):
         tools: list[dict] = None,
         max_tokens: int = 4096,
     ) -> LLMResponse:
+        if os.environ.get("CLAUDECODE"):
+            raise RuntimeError(
+                "Cannot use the claude CLI adapter inside an active Claude Code session. "
+                "Either run `ac debate` from a regular terminal, or use --adapter anthropic "
+                "(requires ANTHROPIC_API_KEY) or --adapter ollama instead."
+            )
+
         prompt = self._messages_to_prompt(messages, system_prompt)
 
         cmd = [
@@ -63,7 +71,6 @@ class ClaudeCLIAdapter(LLMAdapter):
             "--model", self.model,
             "--output-format", "json",
             "--no-session-persistence",
-            "--max-tokens", str(max_tokens),
         ]
 
         # Determine effective tools list

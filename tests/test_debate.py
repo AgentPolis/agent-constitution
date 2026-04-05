@@ -30,8 +30,11 @@ DEFENDER_RESPONSE = json.dumps({
 
 JUDGE_RESPONSE = json.dumps({
     "verdict": "proceed_with_caution",
-    "score_delta": -3,
+    "score_delta": -21,
     "reasoning": "Challenges are valid but manageable.",
+    "next_actions": ["Resolve rollback readiness before approval."],
+    "upgrade_condition": "Rollback drill passes in staging.",
+    "downgrade_condition": "Blast radius remains broad or rollback stays untested.",
     "confidence": 0.72,
 })
 
@@ -46,15 +49,15 @@ def _make_debate() -> Debate:
 class TestDebateShouldTrigger:
     def test_should_trigger_at_threshold(self):
         debate = _make_debate()
-        assert debate.should_trigger(32) is True
+        assert debate.should_trigger(70) is True
 
     def test_should_trigger_above_threshold(self):
         debate = _make_debate()
-        assert debate.should_trigger(40) is True
+        assert debate.should_trigger(85) is True
 
     def test_should_not_trigger_below_threshold(self):
         debate = _make_debate()
-        assert debate.should_trigger(31) is False
+        assert debate.should_trigger(69) is False
 
     def test_should_not_trigger_at_zero(self):
         debate = _make_debate()
@@ -97,6 +100,13 @@ class TestDebateRun:
         assert hasattr(result, "audit_trail")
         assert isinstance(result.audit_trail, list)
 
+    def test_result_has_actionability_fields(self):
+        debate = _make_debate()
+        result = debate.run("some topic")
+        assert result.next_actions == ["Resolve rollback readiness before approval."]
+        assert result.upgrade_condition == "Rollback drill passes in staging."
+        assert result.downgrade_condition == "Blast radius remains broad or rollback stays untested."
+
     def test_audit_trail_has_three_entries(self):
         debate = _make_debate()
         result = debate.run("some topic")
@@ -109,10 +119,10 @@ class TestDebateRun:
         assert roles == ["challenger", "defender", "judge"]
 
     def test_score_delta_clamped_max(self):
-        # Judge tries to return +10, should be clamped to +5
+        # Judge tries to return a non-allowed positive delta, should be normalized
         judge_response = json.dumps({
             "verdict": "proceed",
-            "score_delta": 10,
+            "score_delta": 22,
             "reasoning": "Very strong.",
             "confidence": 0.9,
         })
@@ -121,13 +131,13 @@ class TestDebateRun:
         judge = _make_agent("judge", judge_response)
         debate = Debate(challenger=challenger, defender=defender, judge=judge)
         result = debate.run("some topic")
-        assert result.score_delta <= 5
+        assert result.score_delta == 8
 
     def test_score_delta_clamped_min(self):
-        # Judge tries to return -20, should be clamped to -10
+        # Judge tries to return a non-allowed negative delta, should be normalized
         judge_response = json.dumps({
             "verdict": "reject",
-            "score_delta": -20,
+            "score_delta": -40,
             "reasoning": "Very weak.",
             "confidence": 0.9,
         })
@@ -136,7 +146,7 @@ class TestDebateRun:
         judge = _make_agent("judge", judge_response)
         debate = Debate(challenger=challenger, defender=defender, judge=judge)
         result = debate.run("some topic")
-        assert result.score_delta >= -10
+        assert result.score_delta == -34
 
     def test_verdict_is_valid(self):
         valid_verdicts = {"proceed", "reject", "proceed_with_caution", "reconsider"}
@@ -173,4 +183,4 @@ class TestDebateRun:
         result = debate.run("some topic")
         assert isinstance(result, DebateResult)
         assert result.verdict == "proceed_with_caution"
-        assert result.score_delta == -3
+        assert result.score_delta == -13

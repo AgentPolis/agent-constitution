@@ -20,7 +20,7 @@ from constitution import BaseAgent, Constitution, DecisionPolicy, GovernanceGate
 class PlannerAdapter:
     def call(self, messages, system_prompt="", tools=None, max_tokens=4096):
         return LLMResponse(
-            content='{"action":"deploy","environment":"production","summary":"Approve the billing-auth hotfix rollout now.","confidence":0.82}',
+            content='{"action":"deploy","environment":"production","summary":"Approve the billing-auth hotfix rollout now.","score":78,"confidence":0.82}',
             input_tokens=24,
             output_tokens=14,
             cost_usd=0.0,

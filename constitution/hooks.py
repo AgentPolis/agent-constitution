@@ -250,7 +250,7 @@ class DecisionPolicy:
     def high_stakes_default(cls) -> DecisionPolicy:
         """Reasonable starter policy for deploy / planning / architecture workflows."""
         return cls(
-            min_score=32,
+            min_score=70,
             action_types={"deploy", "launch", "migrate", "rollback", "approve"},
             environments={"production"},
             critical_keywords={"auth", "billing", "security", "customer data", "pricing"},
@@ -348,11 +348,17 @@ class GovernanceGateHook(AgentHook):
             raise ValueError("chat formatter mode must be 'summary' or 'full_transcript'")
 
         def formatter(response_content: str, result: DebateResult) -> str:
+            from .debate import SCORE_MAX, clamp_score, delta_severity, score_band
+
             data = _extract_json_object(response_content)
             summary = _lookup_string(data, "summary", "recommendation") or response_content
             confidence = data.get("confidence") if isinstance(data, dict) else None
             action = _lookup_string(data, "action", "action_type", "actionType")
             environment = _lookup_string(data, "environment", "env")
+            initial_score = data.get("score") if isinstance(data, dict) else None
+            adjusted_score = None
+            if isinstance(initial_score, (int, float)):
+                adjusted_score = clamp_score(int(initial_score) + result.score_delta)
 
             lines = [f"Recommendation: {summary}"]
             if action:
@@ -361,6 +367,14 @@ class GovernanceGateHook(AgentHook):
                 lines.append(f"Environment: {environment}")
             if isinstance(confidence, (int, float)):
                 lines.append(f"Confidence: {float(confidence):.0%}")
+            if isinstance(initial_score, (int, float)):
+                lines.append(
+                    f"Assessment: {int(initial_score)}/{SCORE_MAX} ({score_band(int(initial_score)).title()})"
+                )
+            if adjusted_score is not None:
+                lines.append(
+                    f"Adjusted score: {adjusted_score}/{SCORE_MAX} ({score_band(adjusted_score).title()})"
+                )
 
             lines.extend(
                 [
@@ -368,12 +382,21 @@ class GovernanceGateHook(AgentHook):
                     "Governance check triggered.",
                     f"Verdict: {_humanize_verdict(result.verdict)}",
                     f"Score delta: {result.score_delta:+d}",
+                    f"Delta severity: {delta_severity(result.score_delta).title()}",
                     f"Why: {result.reasoning}",
                 ]
             )
 
             if result.challenges:
                 lines.append(f"Top concern: {result.challenges[0]}")
+            if result.missing_context:
+                lines.extend(["Missing context:", *[f"- {item}" for item in result.missing_context]])
+            if result.next_actions:
+                lines.extend(["Next step:", *[f"- {action}" for action in result.next_actions]])
+            if result.upgrade_condition:
+                lines.append(f"Upgrade condition: {result.upgrade_condition}")
+            if result.downgrade_condition:
+                lines.append(f"Downgrade condition: {result.downgrade_condition}")
 
             if mode == "full_transcript":
                 lines.extend(
@@ -392,15 +415,28 @@ class GovernanceGateHook(AgentHook):
         return formatter
 
     def _governance_summary_payload(self, result: DebateResult) -> dict:
+        from .debate import delta_severity
+
         payload = {
             "triggered": True,
             "trigger_reasons": list(self.last_trigger_reasons),
             "verdict": result.verdict,
             "score_delta": result.score_delta,
+            "delta_severity": delta_severity(result.score_delta),
             "reasoning": result.reasoning,
+            "missing_context": list(result.missing_context),
+            "next_actions": list(result.next_actions),
+            "upgrade_condition": result.upgrade_condition,
+            "downgrade_condition": result.downgrade_condition,
         }
         if self.last_score is not None:
             payload["initial_score"] = self.last_score
+            from .debate import clamp_score, score_band
+
+            adjusted = clamp_score(self.last_score + result.score_delta)
+            payload["adjusted_score"] = adjusted
+            payload["initial_band"] = score_band(self.last_score)
+            payload["adjusted_band"] = score_band(adjusted)
         return payload
 
     def _format_summary_text(self, response_content: str, result: DebateResult) -> str:
@@ -411,8 +447,13 @@ class GovernanceGateHook(AgentHook):
             "[Governance Check]\n"
             f"- verdict: {result.verdict}\n"
             f"- score_delta: {result.score_delta:+d}\n"
+            f"- delta_severity: {self._governance_summary_payload(result).get('delta_severity', 'unknown')}\n"
             f"- trigger_reasons: {trigger_reasons}\n"
             f"- top_challenge: {top_challenge}\n"
+            f"- missing_context: {' | '.join(result.missing_context)}\n"
+            f"- next_actions: {' | '.join(result.next_actions)}\n"
+            f"- upgrade_condition: {result.upgrade_condition}\n"
+            f"- downgrade_condition: {result.downgrade_condition}\n"
         )
 
     def _format_full_transcript_text(self, response_content: str, result: DebateResult) -> str:
@@ -429,7 +470,12 @@ class GovernanceGateHook(AgentHook):
             f"trigger_reasons: {trigger_reasons}\n"
             f"verdict: {result.verdict}\n"
             f"score_delta: {result.score_delta:+d}\n"
+            f"delta_severity: {self._governance_summary_payload(result).get('delta_severity', 'unknown')}\n"
             f"reasoning: {result.reasoning}\n"
+            f"missing_context: {' | '.join(result.missing_context)}\n"
+            f"next_actions: {' | '.join(result.next_actions)}\n"
+            f"upgrade_condition: {result.upgrade_condition}\n"
+            f"downgrade_condition: {result.downgrade_condition}\n"
             "challenges:\n"
             f"{challenge_lines}\n"
             "defenses:\n"

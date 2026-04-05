@@ -1,0 +1,55 @@
+{
+  "title": "Recorded Live LLM Debate Replay",
+  "subtitle": "Billing-auth hotfix deploy review",
+  "source": {
+    "adapter": "claude",
+    "model": "sonnet",
+    "mode": "recorded_replay",
+    "note": "Captured from a real LLM run with supporting context files."
+  },
+  "prompt": "Use Agent Constitution to judge whether the billing-auth hotfix should go to production tonight. Background is in the release checklist, rollback runbook, and deploy brief.",
+  "context_files": [
+    "examples/context/deploy/release-checklist.md",
+    "examples/context/deploy/rollback-runbook.md",
+    "examples/context/deploy/deploy-brief.md"
+  ],
+  "before": {
+    "recommendation": "Approve the billing-auth hotfix rollout now.",
+    "confidence": "82%",
+    "assessment": "72/100 (Promising)"
+  },
+  "after": {
+    "verdict": "Proceed With Caution",
+    "initial_score": 72,
+    "final_score": 51,
+    "final_band": "Caution",
+    "score_delta": -21,
+    "delta_severity": "Major Concern",
+    "why": "The package is materially stronger with rollback, checklist, and canary details attached, but the evidence case is still weaker than it first appears and the first-hour billing-specific abort path is not yet proven.",
+    "top_concern": "Canary monitoring is still missing a billing-transaction-specific abort gate.",
+    "dimensions": {
+      "impact": "18/20",
+      "readiness": "17/20",
+      "rollback": "16/20",
+      "blast_radius": "14/20",
+      "evidence": "7/20"
+    },
+    "critic_points": [
+      "The hotfix history may not be truly comparable because the prior five changes were not proven to match billing-auth complexity or blast radius.",
+      "The canary plan still lacks a billing-transaction-specific abort gate, so silent financial failures could slip past generic auth health checks.",
+      "Night deployment remains operationally asymmetric because staging rollback success does not guarantee the same response speed under real traffic and reduced staffing."
+    ],
+    "defender_points": [
+      "Checklist completion, rollback drill evidence, and canary rollout planning show the team has already done more than a superficial release review.",
+      "The deployment packet makes it possible to close the remaining canary and escalation gaps quickly rather than delaying blindly.",
+      "The rollout can still proceed in a bounded way if billing-specific monitoring and night escalation commitments are explicitly confirmed before release."
+    ],
+    "blockers": [
+      "Confirm the canary has a billing-transaction-specific abort gate, including settlement success rate and p99 latency.",
+      "Audit the prior five hotfixes and confirm they are actually comparable in scope and production sensitivity.",
+      "Confirm the rollback runbook can achieve a night escalation SLA of 10 minutes or less."
+    ],
+    "upgrade_condition": "Upgrade to proceed once billing-transaction abort gates are confirmed, the prior hotfix sample is shown to be comparable, and the night escalation SLA is 8-10 minutes or better.",
+    "downgrade_condition": "Downgrade to reject if any blocker remains unresolved before the deployment window or if the billing canary lacks a dedicated abort signal."
+  }
+}

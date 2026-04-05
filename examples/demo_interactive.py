@@ -22,9 +22,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from constitution import BaseAgent, Constitution, Debate
-from constitution.debate import DebateResult
+from constitution.debate import DebateResult, SCORE_MAX, clamp_score, delta_severity, score_band
 from constitution.hooks import DebateHook
 from constitution.retrospective import Retrospective
+from constitution.scenarios import build_analyst_prompt
 
 console = Console()
 
@@ -83,7 +84,11 @@ class LiveDebateHook(DebateHook):
         console.print(Panel(
             f"[{color}]{label}[/{color}]\n\n"
             f"[bold]Score delta:[/bold] {result.score_delta:+d}\n\n"
-            f"[bold]Reasoning:[/bold]\n{result.reasoning}",
+            f"[bold]Delta severity:[/bold] {delta_severity(result.score_delta).title()}\n\n"
+            f"[bold]Reasoning:[/bold]\n{result.reasoning}\n\n"
+            f"[bold]Next actions:[/bold]\n- " + "\n- ".join(result.next_actions) + "\n\n"
+            f"[bold]Upgrade condition:[/bold]\n{result.upgrade_condition}\n\n"
+            f"[bold]Downgrade condition:[/bold]\n{result.downgrade_condition}",
             title="[bold magenta]Judge Verdict[/bold magenta]",
             border_style="magenta",
             padding=(1, 2),
@@ -177,7 +182,7 @@ def main():
 
     analyst = BaseAgent(
         role="analyst",
-        goal="Evaluate decisions with honest, calibrated assessments. Return JSON with score (0-40), dimensions (market_size, timing, moat, execution, revenue each 0-10), summary, confidence (0-1).",
+        goal="Evaluate decisions with honest, calibrated assessments. Return JSON with a 0-100 score, 5 scenario-aware dimensions scored 0-20 each, summary, confidence (0-1), and scenario.",
         persona="Methodical and data-driven. Never overstates confidence. Tags uncertainty with [SPECULATION].",
         adapter=adapter,
         constitution=rules,
@@ -203,15 +208,11 @@ def main():
 
     # Step 1: Assessment
     console.print("\n[bold cyan]Step 1: Analyst is evaluating...[/bold cyan]")
-    assessment = analyst.run(
-        f"Evaluate this decision on a 0-40 scale across 5 dimensions "
-        f"(market_size, timing, moat, execution, revenue). Return JSON with "
-        f"score, dimensions dict, summary, confidence (0-1). Decision: {topic}"
-    )
+    assessment = analyst.run(build_analyst_prompt(topic))
 
     try:
         data = json.loads(assessment)
-        score = data.get("score", 35)
+        score = data.get("score", 78)
         summary = data.get("summary", assessment[:200])
         confidence = data.get("confidence", 0.75)
         dimensions = data.get("dimensions", {})
@@ -221,14 +222,17 @@ def main():
         table.add_column("Score", style="green", justify="center")
         table.add_column("", style="dim")
         for dim, val in dimensions.items():
-            bar = "█" * val + "░" * (10 - val)
-            table.add_row(dim.replace("_", " ").title(), f"{val}/10", bar)
+            filled = max(0, min(10, int(round(val / 2))))
+            bar = "█" * filled + "░" * (10 - filled)
+            table.add_row(dim.replace("_", " ").title(), f"{val}/20", bar)
         console.print(table)
-        console.print(f"\n  [bold]Total score:[/bold] [yellow]{score}/40[/yellow]  "
-                       f"[bold]Confidence:[/bold] {confidence:.0%}")
+        console.print(
+            f"\n  [bold]Total score:[/bold] [yellow]{score}/{SCORE_MAX}[/yellow] "
+            f"({score_band(score).title()})  [bold]Confidence:[/bold] {confidence:.0%}"
+        )
         console.print(f"  [bold]Summary:[/bold] {summary}")
     except (json.JSONDecodeError, TypeError):
-        score = 35
+        score = 78
         console.print(f"  [dim]{assessment[:300]}[/dim]")
 
     # Step 2: Trigger decision
@@ -253,13 +257,13 @@ def main():
         hooks=[LiveDebateHook()],
     )
     result = debate.run(topic=topic, initial_score=score)
-    final_score = score + result.score_delta
+    final_score = clamp_score(score + result.score_delta)
 
     # Step 4: Record to retrospective
     retro = Retrospective()
     pred = retro.record_prediction(
         agent_role="analyst",
-        claim=f"Decision '{topic[:50]}...' scored {score}/40",
+        claim=f"Decision '{topic[:50]}...' scored {score}/{SCORE_MAX}",
         confidence=confidence if 'confidence' in dir() else 0.75,
     )
 
@@ -270,9 +274,9 @@ def main():
     summary_table.add_column("", style="bold", width=12)
     summary_table.add_column("")
     summary_table.add_row("Decision", topic[:80])
-    summary_table.add_row("Initial score", f"{score}/40")
+    summary_table.add_row("Initial score", f"{score}/{SCORE_MAX}")
     summary_table.add_row("Debate delta", f"{result.score_delta:+d}")
-    summary_table.add_row("Final score", f"[bold]{final_score}/40[/bold]")
+    summary_table.add_row("Final score", f"[bold]{final_score}/{SCORE_MAX}[/bold]")
     summary_table.add_row("Verdict", result.verdict)
     summary_table.add_row("Prediction ID", pred.id[:8] + "...")
     console.print(summary_table)

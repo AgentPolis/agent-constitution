@@ -15,6 +15,9 @@ from constitution.cli import (
     _append_governance_history,
     _build_adapter,
     _build_governance_record,
+    _find_audit_entry_content,
+    _parse_analyst_assessment,
+    _write_debate_artifact,
     _epistemic_honesty_score,
     _has_calibrated_confidence,
     _load_governance_history,
@@ -107,9 +110,9 @@ class TestEpistemicHonestyScore:
 class TestAnalystResponseIsValid:
     def test_valid_response(self):
         raw = json.dumps({
-            "score": 35,
+            "score": 78,
             "summary": "Looks promising",
-            "dimensions": {"market": 8, "team": 7},
+            "dimensions": {"market": 16, "team": 14},
             "confidence": 0.75,
         })
         assert _analyst_response_is_valid(raw) is True
@@ -124,7 +127,7 @@ class TestAnalystResponseIsValid:
 
     def test_missing_confidence(self):
         raw = json.dumps({
-            "score": 35,
+            "score": 78,
             "summary": "No confidence",
             "dimensions": {},
         })
@@ -132,6 +135,22 @@ class TestAnalystResponseIsValid:
 
     def test_non_json(self):
         assert _analyst_response_is_valid("just text") is False
+
+
+class TestParseAnalystAssessment:
+    def test_valid_assessment(self):
+        raw = json.dumps({
+            "score": 72,
+            "summary": "Looks structured",
+            "dimensions": {"impact": 18},
+            "confidence": 0.77,
+        })
+        data = _parse_analyst_assessment(raw)
+        assert data["score"] == 72
+
+    def test_invalid_assessment_raises(self):
+        with pytest.raises(ValueError):
+            _parse_analyst_assessment("not json")
 
 
 # ---------------------------------------------------------------------------
@@ -169,15 +188,18 @@ DEFENDER_RESPONSE = json.dumps({
 
 JUDGE_RESPONSE = json.dumps({
     "verdict": "proceed_with_caution",
-    "score_delta": -3,
+    "score_delta": -21,
     "reasoning": "Challenges are valid but manageable.",
+    "next_actions": ["Confirm finance sign-off before approval."],
+    "upgrade_condition": "Finance signs off on the margin floor.",
+    "downgrade_condition": "Precedent guardrails remain undefined.",
     "confidence": 0.72,
 })
 
 ANALYST_RESPONSE = json.dumps({
-    "score": 35,
+    "score": 78,
     "summary": "Promising opportunity",
-    "dimensions": {"market": 8, "team": 7, "timing": 7, "risk": 6, "upside": 7},
+    "dimensions": {"market": 16, "team": 14, "timing": 15, "risk": 12, "upside": 18},
     "confidence": 0.75,
 })
 
@@ -206,6 +228,7 @@ class TestBuildGovernanceRecord:
         assert record["debate_triggered"] is False
         assert record["challenges_count"] == 0
         assert record["defenses_count"] == 0
+        assert record["debate_rigor"] == 0.0
 
     def test_record_with_debate_result(self):
         analyst = _make_agent("analyst", ANALYST_RESPONSE)
@@ -219,7 +242,7 @@ class TestBuildGovernanceRecord:
 
         result = DebateResult(
             verdict="proceed_with_caution",
-            score_delta=-3,
+            score_delta=-21,
             reasoning="Valid concerns",
             challenges=["C1", "C2", "C3"],
             defenses=["D1", "D2", "D3"],
@@ -232,7 +255,7 @@ class TestBuildGovernanceRecord:
 
         record = _build_governance_record(
             topic="debate topic",
-            score=35,
+            score=78,
             debate_triggered=True,
             result=result,
             assessment=ANALYST_RESPONSE,
@@ -247,6 +270,43 @@ class TestBuildGovernanceRecord:
         assert record["audit_trail_entries"] == 3
         assert record["debate_rigor"] > 0.0
 
+    def test_record_with_hook_audit_entries_still_uses_core_roles(self):
+        analyst = _make_agent("analyst", ANALYST_RESPONSE)
+        critic = _make_agent("critic", CHALLENGER_RESPONSE)
+        judge = _make_agent("judge", JUDGE_RESPONSE)
+
+        analyst.run("test")
+        critic.run("test")
+        judge.run("test")
+
+        result = DebateResult(
+            verdict="proceed_with_caution",
+            score_delta=-21,
+            reasoning="Valid concerns",
+            challenges=["C1", "C2", "C3"],
+            defenses=["D1", "D2", "D3"],
+            audit_trail=[
+                {"role": "challenger", "content": CHALLENGER_RESPONSE},
+                {"role": "hook", "content": '{"before": [], "after": []}'},
+                {"role": "defender", "content": DEFENDER_RESPONSE},
+                {"role": "judge", "content": JUDGE_RESPONSE},
+            ],
+        )
+
+        record = _build_governance_record(
+            topic="debate topic",
+            score=78,
+            debate_triggered=True,
+            result=result,
+            assessment=ANALYST_RESPONSE,
+            analyst=analyst,
+            critic=critic,
+            judge=judge,
+        )
+
+        assert record["debate_rigor"] > 0.0
+        assert record["audit_completeness"] > 0.0
+
     def test_record_with_short_audit_trail(self):
         """audit_trail < 3 entries should not crash (bounds check)."""
         analyst = _make_agent("analyst", ANALYST_RESPONSE)
@@ -256,8 +316,9 @@ class TestBuildGovernanceRecord:
 
         result = DebateResult(
             verdict="proceed_with_caution",
-            score_delta=-1,
+            score_delta=-13,
             reasoning="Partial",
+            missing_context=["Background is missing."],
             challenges=["C1"],
             defenses=["D1"],
             audit_trail=[
@@ -267,7 +328,7 @@ class TestBuildGovernanceRecord:
 
         record = _build_governance_record(
             topic="partial debate",
-            score=35,
+            score=78,
             debate_triggered=True,
             result=result,
             assessment=ANALYST_RESPONSE,
@@ -309,14 +370,67 @@ class TestGovernanceHistory:
             patch("constitution.cli.GOVERNANCE_HISTORY_PATH", hist_file),
             patch("constitution.cli.WORKSPACE_DIR", tmp_path),
         ):
-            _append_governance_history({"topic": "test", "score": 35})
+            _append_governance_history({"topic": "test", "score": 78})
             loaded = _load_governance_history()
             assert len(loaded) == 1
             assert loaded[0]["topic"] == "test"
 
-            _append_governance_history({"topic": "second", "score": 28})
+            _append_governance_history({"topic": "second", "score": 56})
             loaded = _load_governance_history()
             assert len(loaded) == 2
+
+    def test_write_debate_artifact(self, tmp_path):
+        with (
+            patch("constitution.cli.WORKSPACE_DIR", tmp_path),
+            patch("constitution.cli.DEBATES_DIR", tmp_path / "debates"),
+        ):
+            result = DebateResult(
+                verdict="proceed_with_caution",
+                score_delta=-21,
+                reasoning="Need stronger rollout controls.",
+                missing_context=["Release checklist missing."],
+                next_actions=["Run rollback drill.", "Set abort thresholds."],
+                upgrade_condition="Rollback drill passes in staging.",
+                downgrade_condition="Rollback remains untested.",
+                challenges=["C1", "C2", "C3"],
+                defenses=["D1", "D2", "D3"],
+                audit_trail=[],
+            )
+            path = _write_debate_artifact(
+                topic="Should we deploy to production tonight?",
+                score=72,
+                assessment=json.dumps(
+                    {
+                        "score": 72,
+                        "summary": "Deploy is plausible but fragile.",
+                        "dimensions": {"impact": 18, "readiness": 15},
+                        "confidence": 0.77,
+                        "scenario": "deploy",
+                    }
+                ),
+                result=result,
+            )
+
+            assert path.exists()
+            body = path.read_text()
+            assert "Debate Record" in body
+            assert "Missing Context" in body
+            assert "Next Actions" in body
+            assert "Upgrade Condition" in body
+            assert "Downgrade Condition" in body
+
+
+class TestFindAuditEntryContent:
+    def test_returns_first_matching_role_content(self):
+        audit_trail = [
+            {"role": "hook", "content": "ignored"},
+            {"role": "challenger", "content": "first"},
+            {"role": "challenger", "content": "second"},
+        ]
+        assert _find_audit_entry_content(audit_trail, "challenger") == "first"
+
+    def test_returns_none_when_role_missing(self):
+        assert _find_audit_entry_content([], "judge") is None
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +456,17 @@ class TestBuildAdapterEdgeCases:
 # ---------------------------------------------------------------------------
 
 class TestRoleConfigResolution:
+    def test_context_file_can_be_repeated(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "debate",
+            "topic",
+            "--context-file", "docs/a.md",
+            "--context-file", "docs/b.md",
+        ])
+
+        assert args.context_file == ["docs/a.md", "docs/b.md"]
+
     def test_role_uses_shared_defaults_when_no_override(self):
         parser = build_parser()
         args = parser.parse_args([

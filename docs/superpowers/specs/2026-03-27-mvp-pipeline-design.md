@@ -182,7 +182,7 @@ Each round = 3 agent calls:
 
 ### Debate Trigger Threshold
 
-Score >= 30/50 (60%). Below 30, the opportunity is not worth debating — output the evaluation and move on. This is independent of `Debate.SCORE_THRESHOLD` (32/40) which is used by the existing generic debate demo.
+Score >= 30/50 (60%). Below 30, the opportunity is not worth debating — output the evaluation and move on. This is independent of `Debate.SCORE_THRESHOLD` (70/100) which is used by the current generic debate demo.
 
 ### Continue Mechanism
 

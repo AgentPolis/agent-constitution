@@ -32,6 +32,7 @@ class PlannerAdapter:
                     "action": "deploy",
                     "environment": "production",
                     "summary": "Approve the billing-auth hotfix rollout now.",
+                    "score": 72,
                     "confidence": 0.82,
                 }
             ),

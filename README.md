@@ -218,6 +218,7 @@ ac debate "Should we deploy the billing-auth hotfix to production tonight?"
 `agent-constitution` requires Python 3.11+.
 
 That path is still useful, but without attached files it should be read as a first-pass judgment rather than a fully grounded deploy decision.
+The zero-config smoke test uses deterministic mock responses. For real-model debate, use `--adapter claude`, `--adapter anthropic`, or `--adapter ollama`.
 
 ## Public Demo vs Internal Mock
 
@@ -658,9 +659,8 @@ The debate engine uses explicit schema validators (`_validate_challenges`, `_val
 
 ### 3. Retrospective Calibration
 
-Periodic lookback verifies past predictions.
-Did the risks materialize? Was the optimism justified?
-Agents earn (or lose) credibility over time.
+This is currently an early library primitive for prediction tracking and credibility adjustment.
+It is useful for experimentation and API design, but it is not yet a persisted retrospective system with end-to-end operational workflow.
 
 ```python
 from constitution import Retrospective
@@ -745,7 +745,7 @@ Audit Completeness         9/10    15%
 Provisional Governance Score: 6.3/10
 ```
 
-The governance score tracks five dimensions: epistemic honesty, constitutional compliance, debate rigor, calibration accuracy, and audit completeness. `ac debate` records governance data to `workspace/governance_history.json`, and `ac score` aggregates those real runs instead of printing placeholders. Until you verify retrospectives, the report stays explicitly **uncalibrated** and should be treated as a provisional operational snapshot rather than a final grade.
+The governance score tracks five dimensions: epistemic honesty, constitutional compliance, debate rigor, calibration accuracy, and audit completeness. `ac debate` records governance data to `workspace/governance_history.json`, and `ac score` aggregates those real runs instead of printing placeholders. Until you verify retrospectives, the report stays explicitly **uncalibrated** and should be treated as a provisional operational snapshot rather than a final grade. It is best read as a process-level proxy for how the workflow is being used, not as proof of real-world decision quality.
 
 ---
 

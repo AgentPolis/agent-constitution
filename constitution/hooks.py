@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from .base_agent import BaseAgent
     from .debate import DebateResult, DebateValidationError
 
+from .governance_chain import GovernanceChain
+
 logger = logging.getLogger(__name__)
 
 
@@ -415,6 +417,7 @@ class GovernanceGateHook(AgentHook):
         self.last_context: TriggerContext | None = None
         self.last_trigger_reasons: list[str] = []
         self.last_verification_tier: VerificationTier | None = None
+        self.last_chain: GovernanceChain | None = None
         self._in_gate = False
         self._prompt_stack: list[str] = []
 
@@ -662,6 +665,27 @@ class GovernanceGateHook(AgentHook):
         finally:
             self._in_gate = False
         self.last_result = result
+
+        # Build governance chain from debate result
+        chain = GovernanceChain()
+        chain.append("assessment", {
+            "score": topic_score,
+            "trigger_reasons": list(self.last_trigger_reasons),
+            "tier": tier.value,
+        })
+        if result.challenges:
+            chain.append("challenge", {"challenges": list(result.challenges)})
+        if result.defenses:
+            chain.append("defense", {"defenses": list(result.defenses)})
+        chain.append("verdict", {
+            "verdict": result.verdict,
+            "score_delta": result.score_delta,
+            "reasoning": result.reasoning,
+            "missing_context": list(result.missing_context),
+            "next_actions": list(result.next_actions),
+        })
+        self.last_chain = chain
+
         if self.on_debate_complete is not None:
             self.on_debate_complete(result)
         if self.response_formatter is not None:

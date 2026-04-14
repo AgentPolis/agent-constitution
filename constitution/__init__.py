@@ -8,6 +8,7 @@ from .governance_score import (
     compute_governance_score,
     uncalibrated_report,
 )
+from .governance_chain import GovernanceChain, GovernanceRecord, VerifyResult
 from .hooks import (
     AgentHook,
     DebateHook,
@@ -46,4 +47,7 @@ __all__ = [
     "aggregate_governance_reports",
     "compute_governance_score",
     "uncalibrated_report",
+    "GovernanceChain",
+    "GovernanceRecord",
+    "VerifyResult",
 ]

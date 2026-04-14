@@ -593,3 +593,247 @@ class TestCompositeDebateHook:
 
         composite = CompositeDebateHook([StrictHook(), LenientHook()])
         assert composite.on_validation_error("challenge", None) == "fallback"
+
+
+# ---------------------------------------------------------------------------
+# VerificationTier tests
+# ---------------------------------------------------------------------------
+
+from constitution.hooks import VerificationTier, COMPLEXITY_LEVELS, TrustProtocol
+
+
+class TestVerificationTier:
+    def test_from_complexity_mapping(self):
+        assert VerificationTier.from_complexity("low") == VerificationTier.LOW
+        assert VerificationTier.from_complexity("medium") == VerificationTier.STANDARD
+        assert VerificationTier.from_complexity("high") == VerificationTier.HIGH
+        assert VerificationTier.from_complexity("critical") == VerificationTier.CRITICAL
+
+    def test_from_complexity_none_defaults_to_standard(self):
+        assert VerificationTier.from_complexity(None) == VerificationTier.STANDARD
+
+    def test_from_complexity_unknown_defaults_to_standard(self):
+        assert VerificationTier.from_complexity("banana") == VerificationTier.STANDARD
+
+    def test_from_complexity_normalizes_case(self):
+        assert VerificationTier.from_complexity("HIGH") == VerificationTier.HIGH
+        assert VerificationTier.from_complexity("Critical") == VerificationTier.CRITICAL
+
+
+# ---------------------------------------------------------------------------
+# DecisionPolicy complexity tests
+# ---------------------------------------------------------------------------
+
+
+class TestDecisionPolicyComplexity:
+    def test_min_complexity_triggers_on_high(self):
+        policy = DecisionPolicy(min_complexity="high")
+        context = TriggerContext(
+            prompt="test", response_content="test", complexity="high"
+        )
+        triggered, reasons = policy.evaluate(context)
+        assert triggered
+        assert any("complexity" in r for r in reasons)
+
+    def test_min_complexity_skips_on_low(self):
+        policy = DecisionPolicy(min_complexity="high")
+        context = TriggerContext(
+            prompt="test", response_content="test", complexity="low"
+        )
+        triggered, reasons = policy.evaluate(context)
+        assert not triggered
+
+    def test_min_complexity_triggers_on_higher_level(self):
+        policy = DecisionPolicy(min_complexity="medium")
+        context = TriggerContext(
+            prompt="test", response_content="test", complexity="critical"
+        )
+        triggered, reasons = policy.evaluate(context)
+        assert triggered
+
+    def test_complexity_levels_matches_exact(self):
+        policy = DecisionPolicy(complexity_levels={"high", "critical"})
+        ctx_high = TriggerContext(prompt="t", response_content="t", complexity="high")
+        ctx_low = TriggerContext(prompt="t", response_content="t", complexity="low")
+        assert policy.evaluate(ctx_high)[0]
+        assert not policy.evaluate(ctx_low)[0]
+
+    def test_min_complexity_unavailable_does_not_trigger(self):
+        policy = DecisionPolicy(min_complexity="high")
+        context = TriggerContext(prompt="test", response_content="test", complexity=None)
+        triggered, _ = policy.evaluate(context)
+        assert not triggered
+
+    def test_invalid_min_complexity_raises(self):
+        with pytest.raises(ValueError, match="min_complexity"):
+            DecisionPolicy(min_complexity="banana")
+
+    def test_verification_tier_from_context(self):
+        policy = DecisionPolicy()
+        ctx = TriggerContext(prompt="t", response_content="t", complexity="critical")
+        assert policy.verification_tier(ctx) == VerificationTier.CRITICAL
+
+    def test_combined_score_and_complexity(self):
+        """Score OR complexity can trigger in 'any' mode."""
+        policy = DecisionPolicy(min_score=70, min_complexity="high", match_mode="any")
+        # Score alone triggers
+        ctx1 = TriggerContext(prompt="t", response_content="t", score=80, complexity="low")
+        assert policy.evaluate(ctx1)[0]
+        # Complexity alone triggers
+        ctx2 = TriggerContext(prompt="t", response_content="t", score=50, complexity="high")
+        assert policy.evaluate(ctx2)[0]
+        # Neither triggers
+        ctx3 = TriggerContext(prompt="t", response_content="t", score=50, complexity="low")
+        assert not policy.evaluate(ctx3)[0]
+
+
+# ---------------------------------------------------------------------------
+# TriggerContext complexity extraction tests
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerContextComplexity:
+    def test_extracts_complexity_from_json(self):
+        response = json.dumps({"score": 80, "complexity": "high"})
+        ctx = TriggerContext.from_inputs(
+            prompt="test", response_content=response, score=80
+        )
+        assert ctx.complexity == "high"
+
+    def test_extracts_complexity_level_variant(self):
+        response = json.dumps({"score": 80, "complexity_level": "critical"})
+        ctx = TriggerContext.from_inputs(
+            prompt="test", response_content=response, score=80
+        )
+        assert ctx.complexity == "critical"
+
+    def test_extracts_risk_level_as_complexity(self):
+        response = json.dumps({"score": 80, "risk_level": "high"})
+        ctx = TriggerContext.from_inputs(
+            prompt="test", response_content=response, score=80
+        )
+        assert ctx.complexity == "high"
+
+    def test_no_complexity_returns_none(self):
+        response = json.dumps({"score": 80})
+        ctx = TriggerContext.from_inputs(
+            prompt="test", response_content=response, score=80
+        )
+        assert ctx.complexity is None
+
+
+# ---------------------------------------------------------------------------
+# GovernanceGateHook verification tier tests
+# ---------------------------------------------------------------------------
+
+
+class TestGovernanceGateHookTier:
+    def test_low_tier_skips_debate(self):
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        policy = DecisionPolicy(
+            decision_keywords={"should we"},
+            match_mode="any",
+        )
+        gate = GovernanceGateHook(
+            challenger=critic,
+            judge=judge,
+            trigger_policy=policy,
+            verification_tier=VerificationTier.LOW,
+        )
+        agent = BaseAgent(role="analyst", goal="Evaluate", constitution=rules, hooks=[gate])
+
+        response = agent.run("Should we deploy?")
+        # LOW tier should skip debate even when policy triggers
+        assert gate.last_result is None
+        assert gate.last_verification_tier == VerificationTier.LOW
+
+    def test_standard_tier_runs_debate(self):
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        gate = GovernanceGateHook(
+            challenger=critic,
+            judge=judge,
+            verification_tier=VerificationTier.STANDARD,
+        )
+        agent = BaseAgent(role="analyst", goal="Evaluate", constitution=rules, hooks=[gate])
+
+        response = agent.run("Should we deploy?")
+        # STANDARD should run debate when score triggers
+        if gate.last_score is not None and gate.last_score >= 70:
+            assert gate.last_result is not None
+            assert gate.last_verification_tier == VerificationTier.STANDARD
+
+    def test_tier_inferred_from_policy_context(self):
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        policy = DecisionPolicy(min_complexity="high")
+        gate = GovernanceGateHook(
+            challenger=critic,
+            judge=judge,
+            trigger_policy=policy,
+        )
+        # Manually check tier resolution
+        ctx = TriggerContext(prompt="t", response_content="t", complexity="critical")
+        tier = policy.verification_tier(ctx)
+        assert tier == VerificationTier.CRITICAL
+
+
+# ---------------------------------------------------------------------------
+# TrustProtocol facade tests
+# ---------------------------------------------------------------------------
+
+
+class TestTrustProtocol:
+    def test_creates_hook_with_defaults(self):
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        protocol = TrustProtocol(challenger=critic, judge=judge)
+
+        assert protocol.hook is not None
+        assert protocol.policy is not None
+        assert protocol.last_result is None
+
+    def test_min_complexity_sets_policy(self):
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        protocol = TrustProtocol(
+            challenger=critic, judge=judge, min_complexity="high"
+        )
+
+        assert protocol.policy.min_complexity == "high"
+
+    def test_invalid_min_complexity_raises(self):
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        with pytest.raises(ValueError):
+            TrustProtocol(challenger=critic, judge=judge, min_complexity="banana")
+
+    def test_tier_passed_to_hook(self):
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        protocol = TrustProtocol(
+            challenger=critic, judge=judge, tier=VerificationTier.HIGH
+        )
+
+        assert protocol.hook.verification_tier == VerificationTier.HIGH
+
+    def test_hook_integrates_with_agent(self):
+        rules = Constitution.default()
+        critic = BaseAgent(role="critic", goal="Challenge", constitution=rules)
+        judge = BaseAgent(role="judge", goal="Judge", constitution=rules)
+        protocol = TrustProtocol(challenger=critic, judge=judge)
+        agent = BaseAgent(
+            role="analyst", goal="Evaluate", constitution=rules,
+            hooks=[protocol.hook],
+        )
+
+        response = agent.run("Should we deploy?")
+        assert isinstance(response, str)

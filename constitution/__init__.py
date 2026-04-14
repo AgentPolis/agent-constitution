@@ -8,7 +8,15 @@ from .governance_score import (
     compute_governance_score,
     uncalibrated_report,
 )
-from .hooks import AgentHook, DebateHook, DecisionPolicy, GovernanceGateHook, TriggerContext
+from .hooks import (
+    AgentHook,
+    DebateHook,
+    DecisionPolicy,
+    GovernanceGateHook,
+    TriggerContext,
+    TrustProtocol,
+    VerificationTier,
+)
 from .retrospective import Prediction, Retrospective
 from .signal import Signal
 from .signal_pool import SignalPool
@@ -25,6 +33,8 @@ __all__ = [
     "GovernanceGateHook",
     "DecisionPolicy",
     "TriggerContext",
+    "TrustProtocol",
+    "VerificationTier",
     "Signal",
     "SignalPool",
     "CostGuard",

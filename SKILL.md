@@ -1,6 +1,6 @@
 # Agent Constitution Skill
 
-Use this project when you want a governance harness around a machine-made decision, not just a stronger raw answer.
+A trust protocol for AI agents. Use this project when you want a governance harness around a machine-made decision, not just a stronger raw answer. Works with a single agent or an entire multi-agent pipeline.
 
 ## When To Use
 

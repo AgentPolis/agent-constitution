@@ -15,6 +15,7 @@ Example:
 
 from __future__ import annotations
 
+import enum
 import json
 import logging
 from dataclasses import dataclass, field
@@ -65,6 +66,37 @@ def _humanize_verdict(verdict: str) -> str:
     return labels.get(verdict, verdict.replace("_", " ").title())
 
 
+class VerificationTier(enum.Enum):
+    """How deeply a decision should be verified.
+
+    LOW:      Skip debate — log only.
+    STANDARD: Single-round debate (challenger/defender/judge).
+    HIGH:     Full debate with enforced context documents.
+    CRITICAL: Multi-round debate with forced context and expanded challenge set.
+    """
+
+    LOW = "low"
+    STANDARD = "standard"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+    @classmethod
+    def from_complexity(cls, complexity: str | None) -> VerificationTier:
+        """Map a complexity label to a verification tier."""
+        mapping = {
+            "low": cls.LOW,
+            "medium": cls.STANDARD,
+            "high": cls.HIGH,
+            "critical": cls.CRITICAL,
+        }
+        if complexity is None:
+            return cls.STANDARD
+        return mapping.get(_normalize_value(complexity), cls.STANDARD)
+
+
+COMPLEXITY_LEVELS = ("low", "medium", "high", "critical")
+
+
 @dataclass(frozen=True)
 class TriggerContext:
     """Normalized context that a trigger policy can inspect."""
@@ -75,6 +107,7 @@ class TriggerContext:
     action_type: str | None = None
     decision_type: str | None = None
     environment: str | None = None
+    complexity: str | None = None
     matched_keywords: tuple[str, ...] = ()
     raw_data: dict | None = None
 
@@ -121,6 +154,14 @@ class TriggerContext:
                 "target_environment",
                 "targetEnvironment",
             ),
+            complexity=_lookup_string(
+                raw_data,
+                "complexity",
+                "complexity_level",
+                "complexityLevel",
+                "risk_level",
+                "riskLevel",
+            ),
             matched_keywords=matched_keywords,
             raw_data=raw_data,
         )
@@ -136,6 +177,8 @@ class DecisionPolicy:
     environments: set[str] = field(default_factory=set)
     critical_keywords: set[str] = field(default_factory=set)
     decision_keywords: set[str] = field(default_factory=set)
+    min_complexity: str | None = None
+    complexity_levels: set[str] = field(default_factory=set)
     match_mode: str = "any"
 
     def __post_init__(self) -> None:
@@ -144,6 +187,13 @@ class DecisionPolicy:
         self.environments = _normalize_tokens(self.environments)
         self.critical_keywords = _normalize_tokens(self.critical_keywords)
         self.decision_keywords = _normalize_tokens(self.decision_keywords)
+        self.complexity_levels = _normalize_tokens(self.complexity_levels)
+        if self.min_complexity is not None:
+            self.min_complexity = _normalize_value(self.min_complexity)
+            if self.min_complexity not in COMPLEXITY_LEVELS:
+                raise ValueError(
+                    f"min_complexity must be one of {COMPLEXITY_LEVELS}, got '{self.min_complexity}'"
+                )
         if self.match_mode not in {"any", "all"}:
             raise ValueError("match_mode must be 'any' or 'all'")
 
@@ -238,6 +288,42 @@ class DecisionPolicy:
                 )
             )
 
+        if self.min_complexity is not None:
+            normalized_complexity = (
+                _normalize_value(context.complexity) if context.complexity else None
+            )
+            if normalized_complexity and normalized_complexity in COMPLEXITY_LEVELS:
+                meets = COMPLEXITY_LEVELS.index(normalized_complexity) >= COMPLEXITY_LEVELS.index(
+                    self.min_complexity
+                )
+            else:
+                meets = False
+            checks.append(
+                (
+                    meets,
+                    (
+                        f"complexity {context.complexity} >= {self.min_complexity}"
+                        if meets
+                        else f"complexity {context.complexity or 'unavailable'} below {self.min_complexity}"
+                    ),
+                )
+            )
+
+        if self.complexity_levels:
+            normalized_complexity = (
+                _normalize_value(context.complexity) if context.complexity else None
+            )
+            checks.append(
+                (
+                    normalized_complexity in self.complexity_levels,
+                    (
+                        f"complexity_level matched: {context.complexity}"
+                        if context.complexity
+                        else "complexity_level unavailable"
+                    ),
+                )
+            )
+
         if not checks:
             return False, []
 
@@ -245,6 +331,10 @@ class DecisionPolicy:
         if self.match_mode == "all":
             return all(matched for matched, _ in checks), matched_reasons
         return any(matched for matched, _ in checks), matched_reasons
+
+    def verification_tier(self, context: TriggerContext) -> VerificationTier:
+        """Determine verification tier from context complexity."""
+        return VerificationTier.from_complexity(context.complexity)
 
     @classmethod
     def high_stakes_default(cls) -> DecisionPolicy:
@@ -298,6 +388,7 @@ class GovernanceGateHook(AgentHook):
         defender: BaseAgent | None = None,
         threshold: int | None = None,
         trigger_policy: DecisionPolicy | None = None,
+        verification_tier: VerificationTier | None = None,
         render_mode: str = "silent",
         score_extractor: Callable[[str], int | None] | None = None,
         topic_builder: Callable[[BaseAgent, str, int], str] | None = None,
@@ -310,6 +401,7 @@ class GovernanceGateHook(AgentHook):
         self.defender = defender
         self.threshold = threshold
         self.trigger_policy = trigger_policy
+        self.verification_tier = verification_tier
         if render_mode not in {"silent", "summary", "full_transcript"}:
             raise ValueError("render_mode must be 'silent', 'summary', or 'full_transcript'")
         self.render_mode = render_mode
@@ -322,6 +414,7 @@ class GovernanceGateHook(AgentHook):
         self.last_result: DebateResult | None = None
         self.last_context: TriggerContext | None = None
         self.last_trigger_reasons: list[str] = []
+        self.last_verification_tier: VerificationTier | None = None
         self._in_gate = False
         self._prompt_stack: list[str] = []
 
@@ -545,6 +638,22 @@ class GovernanceGateHook(AgentHook):
         if not score_trigger and not policy_trigger:
             return response_content
 
+        # Determine effective verification tier
+        tier = self.verification_tier
+        if tier is None and self.trigger_policy is not None:
+            tier = self.trigger_policy.verification_tier(context)
+        if tier is None:
+            tier = VerificationTier.STANDARD
+        self.last_verification_tier = tier
+
+        # LOW tier: log trigger but skip debate
+        if tier == VerificationTier.LOW:
+            logger.info(
+                "GovernanceGateHook: tier=LOW, skipping debate (reasons: %s)",
+                self.last_trigger_reasons,
+            )
+            return response_content
+
         topic_score = score if score is not None else threshold
         topic = self.topic_builder(agent, response_content, topic_score)
         self._in_gate = True
@@ -666,3 +775,77 @@ class CompositeDebateHook(DebateHook):
             if action != "raise":
                 return action
         return "raise"
+
+
+class TrustProtocol:
+    """One-step facade for adding trust verification to any agent.
+
+    Wraps DecisionPolicy, VerificationTier, and GovernanceGateHook into a
+    single entry point so callers don't need to assemble the pieces manually.
+
+    Example::
+
+        from agent_constitution import TrustProtocol, BaseAgent, VerificationTier
+
+        protocol = TrustProtocol(
+            challenger=BaseAgent(role="critic", goal="Challenge"),
+            judge=BaseAgent(role="judge", goal="Arbitrate"),
+            tier=VerificationTier.HIGH,
+            min_complexity="high",
+        )
+
+        agent = BaseAgent(role="analyst", goal="Evaluate", hooks=[protocol.hook])
+        response = agent.run("Should we deploy?")
+    """
+
+    def __init__(
+        self,
+        challenger: BaseAgent,
+        judge: BaseAgent,
+        *,
+        defender: BaseAgent | None = None,
+        tier: VerificationTier | None = None,
+        policy: DecisionPolicy | None = None,
+        min_complexity: str | None = None,
+        render_mode: str = "summary",
+        strict_validation: bool = True,
+        on_debate_complete: Callable[[DebateResult], None] | None = None,
+    ):
+        if policy is None:
+            policy = DecisionPolicy.high_stakes_default()
+        if min_complexity is not None:
+            policy.min_complexity = _normalize_value(min_complexity)
+            if policy.min_complexity not in COMPLEXITY_LEVELS:
+                raise ValueError(
+                    f"min_complexity must be one of {COMPLEXITY_LEVELS}, got '{min_complexity}'"
+                )
+
+        self.policy = policy
+        self.tier = tier
+        self.hook = GovernanceGateHook(
+            challenger=challenger,
+            judge=judge,
+            defender=defender,
+            trigger_policy=policy,
+            verification_tier=tier,
+            render_mode=render_mode,
+            response_formatter=GovernanceGateHook.chat_response_formatter(
+                "summary" if render_mode in ("summary", "silent") else "full_transcript"
+            )
+            if render_mode != "silent"
+            else None,
+            on_debate_complete=on_debate_complete,
+            strict_validation=strict_validation,
+        )
+
+    @property
+    def last_result(self) -> DebateResult | None:
+        return self.hook.last_result
+
+    @property
+    def last_verification_tier(self) -> VerificationTier | None:
+        return self.hook.last_verification_tier
+
+    @property
+    def last_trigger_reasons(self) -> list[str]:
+        return self.hook.last_trigger_reasons

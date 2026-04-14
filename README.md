@@ -1,7 +1,9 @@
 # Agent Constitution
 
-**Governance harness for decisions that should be judged against real documents, not just a one-line prompt.**
-**Works with single-agent and multi-agent workflows. Adds document-aware review, structured challenge, auditability, and governance scoring.**
+**A trust protocol for AI agents.**
+**One hook. Any agent. Every decision verified.**
+
+Works with a single assistant or an entire multi-agent pipeline. Adds document-aware review, structured challenge, auditability, and governance scoring.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -22,7 +24,7 @@ flowchart LR
     style F fill:#d97706,color:#fff,stroke:none
 ```
 
-Agent Constitution is a governance layer you can place around an existing assistant, planner, reviewer, or agent pipeline.
+Agent Constitution is a trust protocol you can place around any AI agent — a single assistant, a planner, a reviewer, or a full multi-agent pipeline.
 
 It is meant for moments where the main problem is not producing an answer, but deciding whether that answer should drive action.
 
@@ -49,7 +51,7 @@ If a decision matters, it often helps to make the review process more explicit. 
 - route high-stakes outputs through structured challenge and judgment
 - preserve audit history so important decisions can be revisited later
 
-This is not only for multi-agent systems. You can use it to harden:
+You can use it to harden:
 
 - a single assistant that needs review before acting
 - a planner or deploy bot that should trigger governance only on high-stakes outputs

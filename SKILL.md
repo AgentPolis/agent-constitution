@@ -188,7 +188,10 @@ For user-facing integrations, the hook can render three different experiences:
 - `ac score` may be provisional / uncalibrated until retrospective verification exists
 - MockAdapter is for structure, onboarding, and CI; it is not evidence of real-model quality
 - CLI demos may look good with one shared model, but production users often want stronger critic / judge roles than analyst roles
-- `DecisionPolicy` can trigger debate from score, action type, environment, decision type, or critical keywords
+- `DecisionPolicy` can trigger debate from score, action type, environment, decision type, critical keywords, or complexity level
+- `VerificationTier` controls debate depth: LOW (skip), STANDARD (single round), HIGH (full + context), CRITICAL (multi-round)
+- Every debate produces a hash-chained `GovernanceChain` — tamper-evident, portable, offline-verifiable via `GovernanceChain.verify_artifact()`
+- `TrustProtocol` is a one-line facade wrapping policy + tier + hook
 - If policy triggers without an explicit score, the gate seeds debate with the threshold score unless you provide your own scorer
 
 ## Hook Boundaries

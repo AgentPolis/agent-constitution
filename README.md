@@ -271,6 +271,66 @@ Current judge deltas are discrete:
 
 That makes the output easier to read as a decision, not just a score.
 
+## Complexity-Triggered Verification
+
+Not every decision needs the same depth of review. `DecisionPolicy` now supports complexity-aware triggering:
+
+```python
+from agent_constitution import TrustProtocol, VerificationTier, BaseAgent
+
+protocol = TrustProtocol(
+    challenger=BaseAgent(role="critic", goal="Challenge"),
+    judge=BaseAgent(role="judge", goal="Arbitrate"),
+    tier=VerificationTier.HIGH,
+    min_complexity="high",
+)
+
+agent = BaseAgent(role="analyst", goal="Evaluate", hooks=[protocol.hook])
+```
+
+Verification tiers:
+
+- `LOW`: skip debate — log trigger only
+- `STANDARD`: single-round debate (challenger/defender/judge)
+- `HIGH`: full debate with enforced context documents
+- `CRITICAL`: multi-round debate with forced context and expanded challenge set
+
+Complexity can come from the agent response (`"complexity": "high"` in JSON output) or be set directly on the policy. The tier maps automatically: `low → LOW`, `medium → STANDARD`, `high → HIGH`, `critical → CRITICAL`.
+
+## Hash-Chained Governance Records
+
+Every debate now produces a tamper-evident hash chain:
+
+```
+genesis(chain_id) → assessment → challenge → defense → verdict
+```
+
+Each record contains a SHA-256 hash linking it to the previous record. If any record is modified after the fact, verification fails.
+
+```python
+# After a debate completes
+chain = gate.last_chain
+artifact = chain.to_artifact()
+
+# Pin this to an external system as a trust anchor
+print(artifact["chain_root_hash"])  # SHA-256 hex
+
+# Verify offline — no runtime needed
+result = GovernanceChain.verify_artifact(artifact)
+assert result.valid
+```
+
+What this guarantees:
+- If anyone modifies a record after creation, the chain breaks
+- The artifact is portable — export as JSON, verify anywhere
+- `chain_root_hash` can be pinned to git commits, CI artifacts, or S3 as an external anchor
+
+What this does not guarantee:
+- It cannot prevent an attacker with write access from recomputing the entire chain (signatures planned for a future release)
+- It cannot replay LLM debates to prove a specific model produced the output (LLM outputs are non-deterministic)
+
+The `signature` field is reserved on every record for future Ed25519 signing.
+
 ## What Users Can Actually Do Today
 
 The package is meant to be runnable, not just demoed.
@@ -340,10 +400,12 @@ The last example is important: you can use Agent Constitution to review a README
 What the package returns today:
 
 - an initial analyst score with scenario-aware dimensions
-- a trigger decision based on score threshold
+- a trigger decision based on score threshold, complexity level, or both
+- complexity-triggered verification tiers (LOW / STANDARD / HIGH / CRITICAL)
 - judgments that change when you attach materially different supporting files
 - challenger / defender / judge outputs when debate triggers
 - a concrete next-step package: `missing_context`, `next_actions`, `upgrade_condition`, `downgrade_condition`
+- a hash-chained governance record (tamper-evident, portable, offline-verifiable)
 - an audit trail that can be recorded and revisited later
 - a per-run markdown debate record under `workspace/debates/`
 
@@ -413,6 +475,9 @@ ac debate "topic" --adapter claude --model sonnet --critic-model opus --judge-mo
 - a zero-config replay demo based on a captured live-model run
 - a zero-config debate smoke test with no API key
 - strict schema validation for challenger, defender, and judge output
+- complexity-triggered verification with four tiers (LOW / STANDARD / HIGH / CRITICAL)
+- hash-chained governance records with offline artifact verification
+- a `TrustProtocol` facade for one-line integration
 - a provisional governance score computed from recorded runs
 - support for Mock, Anthropic, Ollama, and Claude CLI backends
 
